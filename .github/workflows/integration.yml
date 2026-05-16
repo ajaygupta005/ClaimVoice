@@ -1,0 +1,26 @@
+name: Integration
+on:
+  push:
+    branches: [main]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: claimvoice
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: bash scripts/db_migrate.sh
+      - run: uv run pytest tests/integration -q

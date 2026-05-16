@@ -1,0 +1,4 @@
+# Dev overrides: hot reload, debug ports, source mounts
+version: "3.9"
+services:
+  # overrides go here when needed

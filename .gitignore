@@ -1,0 +1,50 @@
+# Node
+node_modules/
+.pnpm-store/
+.next/
+dist/
+build/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Data
+data/raw/
+data/processed/
+data/cache/
+
+# ML
+artifacts/**/*
+!artifacts/**/.gitkeep
+!artifacts/**/*.dvc
+!artifacts/**/README.md
+mlruns/
+reports/**/run-*
+
+# Docker / runtime
+*.log
+.docker/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# OS
+.DS_Store
+Thumbs.db

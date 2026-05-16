@@ -1,0 +1,15 @@
+name: Security
+on:
+  schedule:
+    - cron: "0 12 * * 1"
+  push:
+    branches: [main]
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with: { languages: javascript, python }
+      - uses: github/codeql-action/analyze@v3

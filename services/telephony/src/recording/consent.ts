@@ -1,0 +1,1 @@
+// State-aware consent prompt

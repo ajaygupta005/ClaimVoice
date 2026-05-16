@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: 'claimvoice'
+    static_configs:
+      - targets:
+          - 'document-ai:8001'
+          - 'eligibility:8002'
+          - 'providers:8003'
+          - 'voice-agent:8004'
+          - 'telephony:8005'
+          - 'api-gateway:8080'

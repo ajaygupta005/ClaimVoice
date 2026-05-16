@@ -1,0 +1,5 @@
+packages:
+  - "apps/*"
+  - "services/api-gateway"
+  - "services/telephony"
+  - "packages/*"

@@ -1,0 +1,8 @@
+defaults: [_self_]
+model:
+  name: resnet50
+  num_classes: 8
+training:
+  epochs: 20
+  batch_size: 32
+  lr: 1e-4

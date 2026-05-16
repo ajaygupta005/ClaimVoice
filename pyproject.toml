@@ -1,0 +1,28 @@
+[project]
+name = "claimvoice"
+version = "0.1.0"
+description = "Multi-modal AI agent for US health-insurance members"
+requires-python = ">=3.12"
+authors = [{name = "ClaimVoice Team"}]
+
+[tool.uv.workspace]
+members = [
+  "services/document-ai",
+  "services/eligibility",
+  "services/providers",
+  "services/voice-agent",
+  "eval",
+  "packages/shared-logging/python",
+  "packages/shared-observability/python",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RET"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"

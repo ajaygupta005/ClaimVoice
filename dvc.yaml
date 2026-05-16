@@ -1,0 +1,30 @@
+stages:
+  ingest_npi:
+    cmd: python data/ingest/npi_ingest.py
+    deps:
+      - data/ingest/npi_ingest.py
+    outs:
+      - data/processed/npi/
+
+  ingest_plan_puf:
+    cmd: python data/ingest/plan_puf_ingest.py
+    deps:
+      - data/ingest/plan_puf_ingest.py
+    outs:
+      - data/processed/plans/
+
+  synthetic_cards:
+    cmd: python data/ingest/synthetic_cards.py --count 100
+    deps:
+      - data/ingest/synthetic_cards.py
+      - data/ingest/configs/cards.yaml
+    outs:
+      - data/processed/synthetic_cards/
+
+  train_card_ocr:
+    cmd: cd services/document-ai/ml && python -m models.card_ocr_layoutlm.train
+    deps:
+      - data/processed/synthetic_cards/
+      - services/document-ai/ml/models/card_ocr_layoutlm/
+    outs:
+      - artifacts/card_ocr/latest/

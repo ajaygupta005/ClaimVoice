@@ -1,0 +1,11 @@
+defaults: [_self_]
+model:
+  name: microsoft/layoutlmv3-base
+  num_labels: 12
+data:
+  train_dir: data/processed/synthetic_cards/train
+  val_dir:   data/processed/synthetic_cards/val
+training:
+  epochs: 10
+  batch_size: 8
+  lr: 5e-5
