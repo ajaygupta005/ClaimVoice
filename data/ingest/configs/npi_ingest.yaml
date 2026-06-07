@@ -1,0 +1,32 @@
+npi:
+  download_url: "https://download.cms.gov/nppes/npi_data.zip"
+  extract_dir: "data/raw/nppes_v2_may2026"
+  
+  # Filtering: NY metro + surrounding areas
+  geo_filter:
+    states: ["NY", "NJ", "CT"]
+    min_latitude: 40.4
+    max_latitude: 41.5
+    min_longitude: -74.5
+    max_longitude: -73.2
+  
+  # Include only active NPIs
+  include_deactivated: false
+  
+  # Filter by entity type: 1=Individual, 2=Organization
+  entity_types: [1, 2]
+  
+  # Filter by primary taxonomy (optional; empty = all)
+  taxonomy_filter:
+    exclude_specialties: []  # If non-empty, exclude these
+  
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+    batch_size: 5000
+    
+logging:
+  level: "INFO"
+  file: "data/ingest.log"
+  
+prometheus:
+  port: 8000
