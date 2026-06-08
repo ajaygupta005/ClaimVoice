@@ -1,0 +1,16 @@
+plan_puf:
+  # CMS Marketplace Plan PUFs 2026
+  # Verify the exact URL at: https://www.cms.gov/marketplace/resources/data/public-use-files
+  # The ZIP (~56 MB) typically contains Plan_Attributes_PUF, Benefits_Cost_Sharing_PUF,
+  # Rate_PUF, and ServiceArea_PUF CSVs.
+  download_url: "https://download.cms.gov/marketplace-puf/2026/plan-attributes-puf.zip"
+  extract_dir: "data/raw/exchange_puf_2026"
+  plan_year: 2026
+
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+    batch_size: 2000
+
+logging:
+  level: "INFO"
+  file: "data/ingest.log"
