@@ -50,10 +50,10 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C3 · Exchange Plan PUFs ingest (plans + benefits)
 **Phase 1 · Day 3–4 · `feat`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-plan-puf-ingest`
 
-**Files to create**:
+**Files created**:
 - `ingest/plan_puf_ingest.py`
 - `ingest/configs/plan_puf_ingest.yaml`
 
@@ -155,11 +155,12 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C7 · ICD-10 / HCPCS code tables
 **Phase 2 · Day 10 · `feat`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-icd-hcpcs-ingest`
 
-**Files to create**:
+**Files created**:
 - `ingest/icd_hcpcs_ingest.py`
+- `ingest/configs/icd_hcpcs_ingest.yaml`
 
 **Implementation notes**:
 1. ICD-10-CM FY2026: parse `icd10cm_codes_2026.txt` (fixed-width 7 + description)
@@ -287,13 +288,13 @@ C10 (dvc pipeline)  ──── depends on all above
 |---|---|---|---|
 | C1 — scaffold | Phase 1 | Day 1 | ✅ |
 | C2 — NPI ingest | Phase 1 | Day 2 | ✅ |
-| C3 — Plan PUF | Phase 1 | Day 3–4 | ⬜ |
+| C3 — Plan PUF | Phase 1 | Day 3–4 | ✅ |
 | C8 — SBC + cards | Phase 1 | Day 4 | ⬜ |
 | C9 — stubs + seeds | Phase 1 | Day 5 | ⬜ |
 | C4 — formulary | Phase 2 | Day 6 | ⬜ |
 | C5 — MRF parser | Phase 2 | Day 7–8 | ⬜ |
 | C6 — Care Compare | Phase 2 | Day 9 | ⬜ |
-| C7 — ICD/HCPCS | Phase 2 | Day 10 | ⬜ |
+| C7 — ICD/HCPCS | Phase 2 | Day 10 | ✅ |
 | C10 — DVC + CI | Phase 2 | Day 11 | ⬜ |
 
 ---

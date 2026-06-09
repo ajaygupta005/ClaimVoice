@@ -1,0 +1,12 @@
+icd:
+  # ICD-10-CM FY2026 and HCPCS Level II 2026
+  # Source URLs are hardcoded in icd_hcpcs_ingest.py as module-level constants.
+  # Override here only if CMS changes the URL pattern mid-year.
+  batch_size: 5000
+
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+
+logging:
+  level: "INFO"
+  file: "data/ingest.log"
