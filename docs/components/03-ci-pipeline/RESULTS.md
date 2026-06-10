@@ -1,22 +1,20 @@
-# Component 03 - GitHub Actions CI Pipeline - Results
+# Component 03 - CI Pipeline - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] First push to main triggers the workflow
+- [ ] Workflow goes green
+- [ ] PR with a lint error gets blocked
 
-## Verification checklist
-- [ ] First green CI run on `main` (record duration)
-- [ ] PR with a lint error: CI blocks merge
-- [ ] PR with a typecheck error: CI blocks merge
-- [ ] PR with a failing test: CI blocks merge
-- [ ] All path entries in CODEOWNERS resolve to existing folders
+## Files in this commit
+- `.github/workflows/ci.yml`
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/CODEOWNERS`
 
-## Metrics
-- Average CI duration over 5 runs: __ min
-- Cache hit rate on pnpm store: __ %
-- Cache hit rate on uv: __ %
+## Commit
+```
+git add .github/ docs/components/03-ci-pipeline/ tests/ci/
+git commit -m "chore(ci): add github actions workflow for lint and tests"
+```
 
-## Notes / surprises
+## Notes
 -
-
-## Follow-ups
-- (integration tests workflow comes in component 11)
-
