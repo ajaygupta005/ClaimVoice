@@ -3,7 +3,7 @@ import hydra
 from omegaconf import DictConfig
 import mlflow
 
-@hydra.main(version_base=None, config_path="../../configs", config_name="train_payor")
+@hydra.main(version_base=None, config_path="../../../configs", config_name="train_payor_classifier")
 def main(cfg: DictConfig):
     with mlflow.start_run():
         mlflow.log_params(dict(cfg.training))

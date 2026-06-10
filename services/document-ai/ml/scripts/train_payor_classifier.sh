@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# train_payor_classifier.sh
+
+cd "$(dirname "$0")/.."
+uv run python -m models.payor_classifier_resnet.train
