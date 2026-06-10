@@ -1,18 +1,22 @@
-# Component 12 - Telephony Service Scaffold + ARCHITECTURE.md - Results
+# Component 12 - Telephony Scaffold + ARCHITECTURE.md - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] `pnpm --filter @claimvoice/telephony dev` boots on :8005
+- [ ] `curl localhost:8005/health` returns `{"status":"ok"}`
+- [ ] `curl -X POST localhost:8005/twilio/voice` returns valid TwiML
+- [ ] ARCHITECTURE.md renders on GitHub with the Mermaid diagram
 
-## Verification checklist
-- [ ] `pnpm --filter @claimvoice/telephony dev` boots cleanly on :8005
-- [ ] `curl localhost:8005/health` returns 200 OK
-- [ ] Twilio webhook tester returns 200 for POST /twilio/voice (valid TwiML)
-- [ ] POST /twilio/status logs a structured line via shared-logging
-- [ ] ARCHITECTURE.md Mermaid diagram renders on GitHub
-- [ ] All ADRs linked from ARCHITECTURE.md
+## Files in this commit
+- `services/telephony/` (Fastify scaffold)
+- `ARCHITECTURE.md` (top-level architecture doc)
 
-## Notes / surprises
--
+## Commit
+```
+git add services/telephony/ ARCHITECTURE.md services/telephony/tests/ tests/docs/test_architecture_renders.py docs/components/12-telephony-scaffold-and-arch/
+git commit -m "feat(telephony): scaffold service with twilio webhooks and architecture doc"
+```
 
-## Follow-ups
-- (Twilio Media Streams WS bridge comes in Phase 3 commit 13)
+## End of Phase 1 + 2 for WS-7 + WS-8
 
+After this commit, Phase 1 and Phase 2 work for WS-7 + WS-8 is complete.
+Total: 12 commits.

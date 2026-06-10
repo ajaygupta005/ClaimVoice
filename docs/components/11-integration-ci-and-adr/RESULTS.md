@@ -1,16 +1,16 @@
-# Component 11 - Integration Tests CI + ADR-0002 (Claude over GPT) - Results
+# Component 11 - Integration CI + ADR - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
-
-## Verification checklist
-- [ ] First green integration run on `main`
-- [ ] Average integration workflow duration: __ s
+## Checklist
+- [ ] Push to main triggers integration workflow
+- [ ] Workflow goes green
 - [ ] ADR-0002 reads as standalone rationale
-- [ ] ADR-0002 linked from ARCHITECTURE.md
 
-## Notes / surprises
--
+## Files in this commit
+- `.github/workflows/integration.yml`
+- `docs/adr/0002-claude-over-gpt.md`
 
-## Follow-ups
-- (more ADRs: 0003 LangGraph, 0004 orchestrated voice, 0005 Postgres-as-vector-store, 0006 MLflow+DVC, 0007 Hydra — write as decisions are made)
-
+## Commit
+```
+git add .github/workflows/integration.yml docs/adr/0002-claude-over-gpt.md tests/ci/test_integration_workflow_valid.py tests/docs/test_adr_0002_structure.py docs/components/11-integration-ci-and-adr/
+git commit -m "chore(ci): add integration tests workflow and adr-0002"
+```

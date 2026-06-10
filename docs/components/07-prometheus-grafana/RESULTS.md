@@ -1,20 +1,20 @@
-# Component 07 - Prometheus + Grafana Self-Hosted - Results
+# Component 07 - Prometheus + Grafana - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
-
-## Verification checklist
-- [ ] Prometheus UI loads at :9090
-- [ ] `up{}` query shows all 6 targets (most DOWN until services come online; that is fine)
-- [ ] Grafana UI loads at :3002
+## Checklist
+- [ ] Prometheus UI at :9090 loads
+- [ ] `up{}` query in Prometheus returns the 6 service targets (most DOWN, fine)
+- [ ] Grafana at :3002 loads
 - [ ] All 4 dashboards visible on startup
-- [ ] Screenshots of each dashboard saved here:
 
-## Screenshots
-- (paste paths or markdown image refs)
+## Files in this commit
+- `docker-compose.yml` (added prometheus + grafana)
+- `infra/prometheus/prometheus.yml`
+- `infra/grafana/datasources.yml`
+- `infra/grafana/dashboards/dashboards.yml`
+- `infra/grafana/dashboards/{services,llm_cost,voice_latency,cache}.json`
 
-## Notes / surprises
--
-
-## Follow-ups
-- (services start exposing /metrics in their own workstreams)
-
+## Commit
+```
+git add docker-compose.yml infra/prometheus/ infra/grafana/ tests/infra/test_prometheus_config_valid.py tests/infra/test_grafana_dashboards_valid.py tests/infra/test_prometheus_up_query.py docs/components/07-prometheus-grafana/
+git commit -m "chore(infra): add prometheus and grafana for metrics"
+```

@@ -1,16 +1,17 @@
-# Component 06 - MLflow Self-Hosted (Experiment Tracking) - Results
+# Component 06 - MLflow - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] `docker compose up -d mlflow` brings UI up at :5000
+- [ ] Created `mlflow-artifacts` bucket in MinIO
+- [ ] `mlflow.log_metric` hello-world works
 
-## Verification checklist
-- [ ] `docker compose up mlflow` brings UI up at `localhost:5000`
-- [ ] `mlflow-artifacts` bucket exists in MinIO
-- [ ] Hello-world run persists (paste run_id)
-- [ ] Artifact upload visible in MinIO console
+## Files in this commit
+- `infra/mlflow/README.md`
+- `docker-compose.yml` (added mlflow service)
+- `.env.example` (added MLFLOW_TRACKING_URI)
 
-## Notes / surprises
--
-
-## Follow-ups
-- (real training runs come during the Document AI workstream in Phase 2)
-
+## Commit
+```
+git add docker-compose.yml .env.example infra/mlflow/ tests/infra/test_mlflow_health.py tests/infra/test_mlflow_run_persists.py tests/infra/test_mlflow_artifact_upload.py docs/components/06-mlflow-self-hosted/
+git commit -m "chore(infra): add mlflow tracking server self-hosted"
+```

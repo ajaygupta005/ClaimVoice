@@ -1,12 +1,28 @@
 global:
   scrape_interval: 15s
+  evaluation_interval: 15s
+
 scrape_configs:
-  - job_name: 'claimvoice'
+  - job_name: 'document-ai'
     static_configs:
-      - targets:
-          - 'document-ai:8001'
-          - 'eligibility:8002'
-          - 'providers:8003'
-          - 'voice-agent:8004'
-          - 'telephony:8005'
-          - 'api-gateway:8080'
+      - targets: ['document-ai:8001']
+
+  - job_name: 'eligibility'
+    static_configs:
+      - targets: ['eligibility:8002']
+
+  - job_name: 'providers'
+    static_configs:
+      - targets: ['providers:8003']
+
+  - job_name: 'voice-agent'
+    static_configs:
+      - targets: ['voice-agent:8004']
+
+  - job_name: 'telephony'
+    static_configs:
+      - targets: ['telephony:8005']
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8080']

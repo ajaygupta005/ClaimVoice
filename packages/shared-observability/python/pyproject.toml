@@ -1,5 +1,17 @@
 [project]
-name = "claimvoice-shared-observability"
+name = "shared-observability"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["opentelemetry-sdk>=1.29", "langfuse>=2.50"]
+dependencies = [
+    "opentelemetry-api>=1.29",
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.29",
+    "langfuse>=2.50",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["shared_observability"]

@@ -1,0 +1,33 @@
+{
+  "uid": "cache",
+  "title": "Cache Hit Rates",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Up",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "up",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "tags": [
+    "claimvoice"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  }
+}

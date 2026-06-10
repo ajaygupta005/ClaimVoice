@@ -1,22 +1,24 @@
-# Component 10 - Inspect AI Eval Suite Scaffold - Results
+# Component 10 - Eval Suite Scaffold - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] `just eval` runs and produces a score
+- [ ] HTML report written somewhere under `eval/`
+- [ ] 20 golden Q&A pairs cover coverage, cost, providers, formulary
 
-## Verification checklist
-- [ ] First `just eval` run completes
-- [ ] HTML report saved to `eval/reports/`
-- [ ] Score recorded for each of 20 golden pairs
-- [ ] Token cost recorded for the full run
-
-## Initial baseline
+## Initial baseline (fill after first run)
 - Coverage QA accuracy: __ %
-- Total tokens consumed: __
-- Total run time: __ s
-- Total cost: $__
+- Total tokens: __
+- Cost: $__
 
-## Notes / surprises
--
+## Files in this commit
+- `eval/pyproject.toml`
+- `eval/README.md`
+- `eval/tasks/__init__.py`
+- `eval/tasks/coverage_qa_eval.py`
+- `eval/datasets/golden_qa.json` (20 pairs)
 
-## Follow-ups
-- (card OCR eval, hallucination eval, provider lookup eval, e2e voice eval come later)
-
+## Commit
+```
+git add eval/ docs/components/10-eval-suite-scaffold/
+git commit -m "feat(eval): scaffold inspect ai eval suite with golden qa"
+```

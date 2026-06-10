@@ -1,16 +1,17 @@
-# Component 05 - Langfuse Self-Hosted (LLM Observability) - Results
+# Component 05 - Langfuse - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] `docker compose up -d langfuse` brings the UI up at :3001
+- [ ] Created project, copied keys into `.env`
+- [ ] Manual curl trace shows up in the UI
 
-## Verification checklist
-- [ ] `docker compose up langfuse` brings the UI up at `localhost:3001`
-- [ ] Project "ClaimVoice" created
-- [ ] Public + secret keys captured into `.env`
-- [ ] Manual curl trace visible in the UI
+## Files in this commit
+- `infra/langfuse/README.md`
+- `docker-compose.yml` (added langfuse service)
+- `.env.example` (added LANGFUSE_* vars)
 
-## Notes / surprises
--
-
-## Follow-ups
-- (the SDK is wired in component 9)
-
+## Commit
+```
+git add docker-compose.yml .env.example infra/langfuse/ tests/infra/test_langfuse_health.py tests/infra/test_langfuse_can_create_trace.py docs/components/05-langfuse-self-hosted/
+git commit -m "chore(infra): add langfuse self-hosted for llm observability"
+```

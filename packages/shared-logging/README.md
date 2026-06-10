@@ -1,2 +1,7 @@
-Shared logging contract — JSON schema with correlation IDs.
-Python uses loguru; Node uses pino. Both emit the same JSON shape.
+# shared-logging
+
+Same JSON log schema for Python (loguru) and Node (pino).
+
+Schema fields: `timestamp, level, service, correlation_id, event, message, extra`.
+
+PII fields are redacted automatically: `member_id, dob, name, phone, address, ssn, email`.

@@ -1,26 +1,19 @@
-# Component 04 - Shared Logging + Prompts Packages - Results
+# Component 04 - Shared Logging + Prompts - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
+## Checklist
+- [ ] Python logger emits JSON matching the schema
+- [ ] Node logger emits the same shape
+- [ ] PII fields get redacted
+- [ ] `pnpm install` picks up the new TS packages
 
-## Verification checklist
-- [ ] Sample Python log line matches the schema (paste below)
-- [ ] Sample Node log line matches the schema (paste below)
-- [ ] PII redaction works on `{member_id, dob, name, phone}`
-- [ ] Correlation ID propagates across two services in a test
-- [ ] Importing `@claimvoice/shared-prompts` from `apps/web` compiles
+## Files in this commit
+- `packages/shared-logging/python/` (loguru)
+- `packages/shared-logging/node/` (pino)
+- `packages/shared-prompts/` (Claude prompts)
+- `docs/logging.md`
 
-## Sample log lines
-```json
-(paste sample lines here after running)
+## Commit
 ```
-
-## Metrics
-- Logger overhead per emit: __ ms
-- PII redaction overhead: __ ms
-
-## Notes / surprises
--
-
-## Follow-ups
-- (more prompts get added in their respective component commits)
-
+git add packages/shared-logging/ packages/shared-prompts/ docs/logging.md tests/packages/ docs/components/04-shared-logging-and-prompts/
+git commit -m "feat(packages): shared logging and prompts packages"
+```

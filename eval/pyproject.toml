@@ -1,9 +1,8 @@
 [project]
-name = "claimvoice-eval"
+name = "eval"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-  "inspect-ai>=0.3",
-  "anthropic>=0.40",
-  "langfuse>=2.50",
+    "inspect-ai>=0.3",
+    "anthropic>=0.40",
 ]
