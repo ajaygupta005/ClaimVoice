@@ -1,23 +1,24 @@
-# Component 02 - Data Layer Infrastructure - Results
+# Component 02 - Data Layer - Results
 
-> Fill in as work progresses. This becomes the evidence the work is done.
-
-## Verification checklist
-- [ ] `docker compose up -d` brings everything to healthy state
-- [ ] `pg_isready -h localhost -p 5432` returns ready
+## Checklist
+- [ ] `docker compose up -d` brings up all three services
+- [ ] `pg_isready -h localhost -p 5432` says ready
 - [ ] `redis-cli -h localhost ping` returns PONG
 - [ ] `curl localhost:9000/minio/health/live` returns 200
-- [ ] `psql -c "SELECT extname FROM pg_extension"` lists vector + postgis
-- [ ] Bring down + up; data in Postgres persists (named volume working)
-- [ ] Bring down + up; data in MinIO persists
+- [ ] `psql ... -c "SELECT extname FROM pg_extension"` shows vector and postgis
 
-## Metrics
-- Total docker-compose startup time: __ s
-- Memory footprint of all three services: __ MB
+## Files in this commit
+- `docker-compose.yml`
+- `infra/postgres/init.sql`
+- `infra/redis/redis.conf`
+- `.env.example`
+- `scripts/healthcheck.sh`
 
-## Notes / surprises
+## Commit
+```
+git add docker-compose.yml infra/postgres/init.sql infra/redis/redis.conf .env.example scripts/healthcheck.sh tests/infra/ docs/components/02-data-layer/
+git commit -m "chore(infra): docker compose with postgres pgvector postgis redis minio"
+```
+
+## Notes
 -
-
-## Follow-ups
--
-
