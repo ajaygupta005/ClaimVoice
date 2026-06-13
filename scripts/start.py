@@ -48,37 +48,109 @@ def info(msg: str) -> None: print(f"     {msg}")
 
 # ── Tool resolution ───────────────────────────────────────────────────────────
 
+def _find_pnpm() -> list[str] | None:
+    """
+    Return the argv prefix to invoke pnpm, e.g. ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
+    Corepack shims are shell scripts that delegate to whatever `node` is active in the shell.
+    When nvm overrides PATH with an old Node, those shims break. Instead we find a Node binary
+    >= 19 and run Corepack directly through it, guaranteeing the right runtime.
+    """
+    # 1. pnpm is a real binary on PATH (standalone installer, Volta, etc.)
+    found = shutil.which("pnpm")
+    if found:
+        r = subprocess.run([found, "--version"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return [found]
+
+    home = Path.home()
+
+    # 2. Find a Node >= 19 binary, then run corepack pnpm through it
+    node_candidates: list[Path] = []
+
+    # Homebrew Cellar: sorted newest first
+    cellar = Path("/opt/homebrew/Cellar/node")
+    if cellar.exists():
+        node_candidates += sorted(cellar.glob("*/bin/node"), reverse=True)
+
+    # nvm versions: sorted newest first
+    for nvm_root in [
+        home / ".local" / "share" / "nvm",
+        home / ".nvm" / "versions" / "node",
+    ]:
+        if nvm_root.exists():
+            node_candidates += sorted(nvm_root.glob("*/bin/node"), reverse=True)
+
+    # Homebrew prefix bin + system locations
+    node_candidates += [
+        Path("/opt/homebrew/bin/node"),
+        Path("/usr/local/bin/node"),
+    ]
+
+    for node_bin in node_candidates:
+        if not node_bin.exists():
+            continue
+        ver_r = subprocess.run([str(node_bin), "--version"], capture_output=True, text=True)
+        if ver_r.returncode != 0:
+            continue
+        ver_str = ver_r.stdout.strip().lstrip("v")
+        try:
+            major = int(ver_str.split(".")[0])
+        except ValueError:
+            continue
+        if major < 19:
+            continue
+
+        # Look for corepack.js next to this node binary
+        corepack_js = node_bin.parent.parent / "lib" / "node_modules" / "corepack" / "dist" / "corepack.js"
+        if not corepack_js.exists():
+            continue
+
+        # Verify it actually works
+        test = subprocess.run(
+            [str(node_bin), str(corepack_js), "pnpm", "--version"],
+            capture_output=True, text=True,
+        )
+        if test.returncode == 0:
+            return [str(node_bin), str(corepack_js), "pnpm"]
+
+    # 3. Fallback: plain executable candidates (standalone pnpm, Windows)
+    plain_candidates: list[Path] = [
+        home / ".local" / "share" / "pnpm" / "pnpm",
+        home / ".corepack" / "shims" / "pnpm",
+        Path("/opt/homebrew/bin/pnpm"),
+        Path("/usr/local/bin/pnpm"),
+        home / "AppData" / "Local" / "pnpm" / "pnpm.cmd",
+        home / "AppData" / "Roaming" / "npm" / "pnpm.cmd",
+    ]
+    for p in plain_candidates:
+        if p.exists():
+            return [str(p)]
+
+    return None
+
+
 def _find_tool(name: str) -> str | None:
     """Return the executable path for a tool, checking PATH and common install locations."""
     found = shutil.which(name)
     if found:
         return found
 
-    # Extra candidate locations per tool (macOS / Linux / Windows)
-    candidates: list[Path] = []
     home = Path.home()
+    candidates: list[Path] = []
 
-    if name == "pnpm":
-        candidates = [
-            # Corepack shims (Node built-in manager, macOS/Linux)
-            home / ".corepack" / "shims" / "pnpm",
-            # pnpm standalone installer default
-            home / ".local" / "share" / "pnpm" / "pnpm",
-            # Homebrew on Apple Silicon
-            Path("/opt/homebrew/bin/pnpm"),
-            # Homebrew on Intel Mac / Linux
-            Path("/usr/local/bin/pnpm"),
-            # Windows: pnpm standalone installer
-            home / "AppData" / "Local" / "pnpm" / "pnpm.cmd",
-            home / "AppData" / "Roaming" / "npm" / "pnpm.cmd",
-        ]
-    elif name == "uv":
+    if name == "uv":
         candidates = [
             home / ".local" / "bin" / "uv",
             home / ".cargo" / "bin" / "uv",
             Path("/opt/homebrew/bin/uv"),
             Path("/usr/local/bin/uv"),
             home / "AppData" / "Local" / "uv" / "bin" / "uv.exe",
+        ]
+    elif name == "docker":
+        candidates = [
+            Path("/usr/local/bin/docker"),
+            Path("/opt/homebrew/bin/docker"),
+            home / "AppData" / "Local" / "Docker" / "wsl" / "distro" / "usr" / "bin" / "docker",
         ]
     elif name == "just":
         candidates = [
@@ -101,8 +173,9 @@ def _find_tool(name: str) -> str | None:
     return None
 
 
-# Resolved tool paths (populated by check_prerequisites)
-TOOLS: dict[str, str] = {}
+# Resolved tool invocations (populated by check_prerequisites).
+# Values are argv prefixes: ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
+TOOLS: dict[str, list[str]] = {}
 
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 
@@ -119,20 +192,32 @@ def check_prerequisites() -> bool:
     hdr("Checking prerequisites")
     all_ok = True
     for name, required, install_url in TOOLS_SPEC:
-        path = _find_tool(name)
-        if path:
-            TOOLS[name] = path
-            label = name if shutil.which(name) else f"{name} (found at {path})"
-            ok(label)
-        elif required:
-            err(f"{name} not found  →  {install_url}")
-            all_ok = False
+        if name == "pnpm":
+            argv = _find_pnpm()
+            if argv:
+                TOOLS[name] = argv
+                label = "pnpm" if argv == ["pnpm"] else f"pnpm (via {' '.join(argv[:2])})"
+                ok(label)
+            elif required:
+                err(f"{name} not found  →  {install_url}")
+                all_ok = False
+            else:
+                warn(f"{name} not found (optional)  →  {install_url}")
         else:
-            warn(f"{name} not found (optional)  →  {install_url}")
+            path = _find_tool(name)
+            if path:
+                TOOLS[name] = [path]
+                label = name if shutil.which(name) else f"{name} (found at {path})"
+                ok(label)
+            elif required:
+                err(f"{name} not found  →  {install_url}")
+                all_ok = False
+            else:
+                warn(f"{name} not found (optional)  →  {install_url}")
 
     # Docker daemon running?
-    docker = TOOLS.get("docker", "docker")
-    result = subprocess.run([docker, "info"], capture_output=True, text=True)
+    docker_argv = TOOLS.get("docker", ["docker"])
+    result = subprocess.run(docker_argv + ["info"], capture_output=True, text=True)
     if result.returncode != 0:
         err("Docker daemon is not running — start Docker Desktop first")
         all_ok = False
@@ -180,12 +265,12 @@ def load_env() -> None:
 def install_dependencies() -> None:
     hdr("Installing dependencies")
 
-    pnpm = TOOLS.get("pnpm", "pnpm")
-    uv   = TOOLS.get("uv",   "uv")
+    pnpm = TOOLS.get("pnpm", ["pnpm"])
+    uv   = TOOLS.get("uv",   ["uv"])
 
     # Node (pnpm)
     info("pnpm install ...")
-    r = subprocess.run([pnpm, "install"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run(pnpm + ["install"], cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         err(f"pnpm install failed:\n{r.stderr}")
         sys.exit(1)
@@ -193,7 +278,7 @@ def install_dependencies() -> None:
 
     # Python (uv)
     info("uv sync ...")
-    r = subprocess.run([uv, "sync"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run(uv + ["sync"], cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         err(f"uv sync failed:\n{r.stderr}")
         sys.exit(1)
@@ -204,14 +289,15 @@ def install_dependencies() -> None:
 
 def start_infra() -> None:
     hdr("Starting Docker infrastructure")
-    docker = TOOLS.get("docker", "docker")
-    info("docker compose up -d ...")
+    docker = TOOLS.get("docker", ["docker"])
+    info("docker compose up -d  (may pull images on first run — this can take a few minutes)")
+    # Stream output so image-pull progress is visible; don't capture
     r = subprocess.run(
-        [docker, "compose", "up", "-d"],
-        cwd=ROOT, capture_output=True, text=True,
+        docker + ["compose", "up", "-d"],
+        cwd=ROOT,
     )
     if r.returncode != 0:
-        err(f"docker compose up failed:\n{r.stderr}")
+        err("docker compose up failed — check output above")
         sys.exit(1)
     ok("Postgres, Redis, MinIO, MLflow, Langfuse, Prometheus, Grafana")
 
@@ -219,7 +305,7 @@ def start_infra() -> None:
     info("Waiting for Postgres ...")
     for attempt in range(30):
         probe = subprocess.run(
-            [docker, "exec", "claimvoice-postgres-1",
+            docker + ["exec", "claimvoice-postgres-1",
              "pg_isready", "-U", "postgres"],
             capture_output=True,
         )
@@ -253,48 +339,48 @@ def _spawn(label: str, cmd: list[str], cwd: Path) -> subprocess.Popen:  # type: 
 def start_services() -> None:
     hdr("Starting services")
 
-    pnpm = TOOLS.get("pnpm", "pnpm")
-    uv   = TOOLS.get("uv",   "uv")
+    pnpm = TOOLS.get("pnpm", ["pnpm"])
+    uv   = TOOLS.get("uv",   ["uv"])
 
     services: list[tuple[str, list[str], Path]] = [
         # (label, command, cwd)
         (
             "api-gateway",
-            [pnpm, "--filter", "@claimvoice/api-gateway", "dev"],
+            pnpm + ["--filter", "@claimvoice/api-gateway", "dev"],
             ROOT,
         ),
         (
             "telephony",
-            [pnpm, "--filter", "@claimvoice/telephony", "dev"],
+            pnpm + ["--filter", "@claimvoice/telephony", "dev"],
             ROOT,
         ),
         (
             "document-ai",
-            [uv, "run", "uvicorn", "document_ai.main:app",
+            uv + ["run", "uvicorn", "document_ai.main:app",
              "--host", "0.0.0.0", "--port", "8001", "--reload"],
             ROOT / "services" / "document-ai",
         ),
         (
             "eligibility",
-            [uv, "run", "uvicorn", "eligibility.main:app",
+            uv + ["run", "uvicorn", "eligibility.main:app",
              "--host", "0.0.0.0", "--port", "8002", "--reload"],
             ROOT / "services" / "eligibility",
         ),
         (
             "providers",
-            [uv, "run", "uvicorn", "providers.main:app",
+            uv + ["run", "uvicorn", "providers.main:app",
              "--host", "0.0.0.0", "--port", "8003", "--reload"],
             ROOT / "services" / "providers",
         ),
         (
             "voice-agent",
-            [uv, "run", "uvicorn", "voice_agent.main:app",
+            uv + ["run", "uvicorn", "voice_agent.main:app",
              "--host", "0.0.0.0", "--port", "8004", "--reload"],
             ROOT / "services" / "voice-agent",
         ),
         (
             "web",
-            [pnpm, "--filter", "@claimvoice/web", "dev"],
+            pnpm + ["--filter", "@claimvoice/web", "dev"],
             ROOT,
         ),
     ]
@@ -356,8 +442,8 @@ def stop_services() -> None:
 
     # Also stop docker infra
     info("Stopping Docker infra ...")
-    docker = TOOLS.get("docker", "docker")
-    subprocess.run([docker, "compose", "down"], cwd=ROOT, capture_output=True)
+    docker = TOOLS.get("docker", ["docker"])
+    subprocess.run(docker + ["compose", "down"], cwd=ROOT, capture_output=True)
     ok("Docker infra stopped")
 
 
