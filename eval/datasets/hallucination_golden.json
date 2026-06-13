@@ -1,0 +1,94 @@
+[
+  {
+    "plan_context": "Aetna PPO 2026. MRI covered at 20% coinsurance after deductible. Deductible $1500. Member YTD spend $200.",
+    "question": "What will my MRI cost?",
+    "facts_available": [
+      "20% coinsurance",
+      "deductible $1500",
+      "YTD $200"
+    ],
+    "truth_label": "grounded",
+    "notes": "Answer should reference the deductible state and coinsurance."
+  },
+  {
+    "plan_context": "UnitedHealthcare HDHP 2026. PCP visit copay $30. Deductible met.",
+    "question": "How much for a PCP visit?",
+    "facts_available": [
+      "copay $30",
+      "deductible met"
+    ],
+    "truth_label": "grounded",
+    "notes": "Just the copay."
+  },
+  {
+    "plan_context": "Cigna 2026. Plan covers physical therapy 25 visits per year.",
+    "question": "Is acupuncture covered?",
+    "facts_available": [],
+    "truth_label": "grounded",
+    "notes": "Should say acupuncture is not specified in plan context; do not make up coverage."
+  },
+  {
+    "plan_context": "BCBS Empire EPO 2026. In-network only. Out-of-network not covered except emergencies.",
+    "question": "Can I see an out-of-network specialist?",
+    "facts_available": [
+      "EPO",
+      "in-network only",
+      "out-of-network not covered"
+    ],
+    "truth_label": "grounded"
+  },
+  {
+    "plan_context": "Aetna PPO 2026. No vision benefit. Member's plan_id 22345.",
+    "question": "Is my annual eye exam covered?",
+    "facts_available": [
+      "no vision benefit"
+    ],
+    "truth_label": "grounded",
+    "notes": "Should say not covered, not make up a vision benefit."
+  },
+  {
+    "plan_context": "UHC 2026. Lisinopril is Tier 1 generic. Tier 1 copay $10.",
+    "question": "What is my copay for lisinopril?",
+    "facts_available": [
+      "Tier 1",
+      "$10"
+    ],
+    "truth_label": "grounded"
+  },
+  {
+    "plan_context": "Cigna 2026. Prior auth required for advanced imaging (MRI, CT, PET).",
+    "question": "Do I need approval for a CT scan?",
+    "facts_available": [
+      "prior auth required",
+      "CT"
+    ],
+    "truth_label": "grounded"
+  },
+  {
+    "plan_context": "Aetna PPO 2026. ER copay $250 after deductible. Deductible $1000. YTD $0.",
+    "question": "What will the ER cost?",
+    "facts_available": [
+      "deductible $1000",
+      "ER copay $250",
+      "YTD $0"
+    ],
+    "truth_label": "grounded"
+  },
+  {
+    "plan_context": "BCBS HMO 2026. Specialist requires PCP referral.",
+    "question": "Can I see a dermatologist directly?",
+    "facts_available": [
+      "HMO",
+      "PCP referral required"
+    ],
+    "truth_label": "grounded"
+  },
+  {
+    "plan_context": "UHC PPO 2026. Mental health copay $40 per session.",
+    "question": "Is therapy covered?",
+    "facts_available": [
+      "copay $40 per session"
+    ],
+    "truth_label": "grounded"
+  }
+]

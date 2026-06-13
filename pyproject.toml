@@ -18,6 +18,27 @@ members = [
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
     "ruff>=0.8",
     "pyyaml>=6.0",
+    "httpx>=0.28",
+    "psycopg[binary]>=3.2",
+    "redis>=5.0",
+    "mlflow>=2.18",
+    "anthropic>=0.40",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "notebooks",
+    "data/raw",
+    "data/processed",
+    "artifacts",
+    ".venv",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]

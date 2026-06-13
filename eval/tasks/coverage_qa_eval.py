@@ -1,13 +1,18 @@
-"""Coverage Q&A eval against golden pairs."""
+"""Coverage Q&A eval against 20 golden pairs."""
 import json
 from pathlib import Path
 
 from inspect_ai import Task, task
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import model_graded_qa
-from inspect_ai.solver import generate
+from inspect_ai.solver import generate, system_message
 
 DATASET = Path(__file__).parent.parent / "datasets" / "golden_qa.json"
+
+SYSTEM = """You are ClaimVoice, a helpful insurance assistant. Answer member
+questions about coverage, cost, and providers using ONLY information in the
+member's context. Be brief and conversational (this is a phone call). If
+the context lacks information, say so plainly."""
 
 
 def load_samples():
@@ -25,6 +30,6 @@ def load_samples():
 def coverage_qa_eval():
     return Task(
         dataset=load_samples(),
-        solver=generate(),
+        solver=[system_message(SYSTEM), generate()],
         scorer=model_graded_qa(),
     )

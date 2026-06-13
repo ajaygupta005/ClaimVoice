@@ -1,7 +1,8 @@
 name: Nightly Eval
+
 on:
   schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC daily
+    - cron: "0 6 * * *"
   workflow_dispatch:
 
 jobs:
@@ -9,14 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check for API key
+        id: keycheck
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "has_key=false" >> $GITHUB_OUTPUT
+            echo "No ANTHROPIC_API_KEY secret. Skipping eval."
+          else
+            echo "has_key=true" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.keycheck.outputs.has_key == 'true'
+        with:
+          python-version: "3.12"
+
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync
-      - name: Run Inspect AI eval suite
+        if: steps.keycheck.outputs.has_key == 'true'
+
+      - name: Install deps
+        if: steps.keycheck.outputs.has_key == 'true'
+        run: uv sync
+
+      - name: Run eval
+        if: steps.keycheck.outputs.has_key == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: uv run inspect eval eval/tasks/
+        run: uv run inspect eval eval/tasks/ --max-tasks 5
+
       - name: Upload report
+        if: steps.keycheck.outputs.has_key == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eval-report
           path: eval/reports/
+          if-no-files-found: ignore
