@@ -77,9 +77,19 @@ packages/
   shared-observability   # Langfuse + OpenTelemetry clients
   shared-config          # Environment schema + constants
   shared-types           # Auto-generated TypeScript from OpenAPI
-data/ingest              # 8 ETL scripts for CMS public datasets (DVC-tracked)
-eval/tasks               # Inspect AI eval tasks (e2e, coverage QA, hallucination, OCR)
+data/
+  ingest/                # ETL scripts + Hydra configs for CMS public datasets (DVC-tracked)
+  CLAUDE.md              # data-directory-specific Claude guidance
+  PLAN.md                # WS-1 task tracker (C1–C10, per-commit status)
+  SPEC.md                # data schema DDL and source catalog
+eval/
+  tasks/                 # Inspect AI eval tasks (e2e, coverage QA, hallucination, OCR)
+  datasets/              # Golden datasets (hallucination_golden.json, etc.)
+docs/
+  components/            # Per-component RESEARCH / SPEC / PLAN / RESULTS docs
+  runbook.md             # Operational runbook (stack startup, Twilio setup, demo flows)
 infra/                   # docker-compose.yml
+scripts/                 # One-off utilities (NPPES sample download/generation, WS-1 setup)
 ```
 
 ### Request Flow
@@ -101,7 +111,7 @@ Next.js (3000)  ←→  Fastify API Gateway (8080)  [Clerk JWT + rate limit]
                   Eligibility + Providers services
 ```
 
-For voice calls, Twilio Media Streams → Telephony service (μ-law transcoding) → Voice Agent WebSocket.
+For voice calls: Twilio Media Streams → Telephony service (:8005, μ-law↔PCM16 transcoding) → Voice Agent WebSocket. The Telephony service also handles state-based consent announcements and AES-256-GCM encrypted recording storage.
 
 ### Voice Agent (LangGraph State Machine)
 
@@ -123,11 +133,50 @@ Card upload → LayoutLMv3 (field extraction) + ResNet-50 (payor classification)
 
 ML models are trained with Hydra configs (`services/document-ai/ml/configs/`), tracked in MLflow, artifacts stored in MinIO and versioned with DVC.
 
+### Data Ingestion Pipeline (`data/ingest/`)
+
+Scripts must run in dependency order (enforced by `dvc repro` and `just data.ingest`):
+
+```
+1. npi_ingest.py        → providers table          (PostGIS GEOGRAPHY point)
+2. plan_puf_ingest.py   → plans + plan_benefits     (monetary values in integer cents)
+3. formulary_ingest.py  → formulary_drug table      (needs plans)
+4. mrf_parser.py        → in_network table          (stream-parse — files are 100+ GB)
+5. care_compare_sync.py → updates providers.quality_rating
+6. icd_hcpcs_ingest.py  → icd10_codes, hcpcs_codes
+7. synthetic_cards.py   → data/processed/synthetic_cards/
+```
+
+Each script is idempotent (`ON CONFLICT DO NOTHING`), uses **Hydra** for config (`ingest/configs/<script>.yaml`), writes to `audit_log`, and reads `DATABASE_URL` from the environment. All monetary amounts are stored as **integer cents (BIGINT)** — never floats. The MRF parser must stream line-by-line due to file size. Schema migrations live in `services/eligibility/alembic/versions/` and must run before any ingestion.
+
+Per-script Hydra overrides:
+```bash
+python data/ingest/npi_ingest.py npi.geo_filter.states=[NY,PA]
+python data/ingest/plan_puf_ingest.py plan_puf.database.batch_size=1000
+```
+
+More detail in `data/CLAUDE.md`, task status in `data/PLAN.md`.
+
 ### Data Layer
 
 - **PostgreSQL 16** (primary): plan knowledge graph, pgvector embeddings (SBC RAG, Voyage AI `voyage-3-large`), PostGIS provider geo-search, immutable audit logs
 - **Redis 7**: session cache, rate limit counters, query result cache
 - **MinIO**: card images, audio recordings, DVC ML artifacts
+
+### Telephony — Consent Recording
+
+`services/telephony/src/recording/` contains three modules that must stay in sync:
+- `state_lookup.ts` — maps NANPA area codes → US states; identifies the 12 two-party-consent states (CA, CT, DE, FL, IL, MD, MA, MT, NH, OR, PA, WA)
+- `consent.ts` — returns a TwiML `<Say>` snippet when the caller's state requires it; empty string otherwise
+- `crypto.ts` — AES-256-GCM encryption with per-call random key wrapped under a per-tenant master key; plaintext is never persisted
+
+The call flow is: inbound Twilio webhook → `voice.ts` → consent check → Media Streams WebSocket → Voice Agent.
+
+For local testing, expose telephony (`:8005`) via ngrok and configure the Twilio Console Voice URL + Status Callback URL. See `docs/runbook.md` for step-by-step instructions.
+
+### Hallucination Eval (`eval/tasks/hallucination_eval.py`)
+
+Uses **Inspect AI** + `model_graded_qa`. Claude Opus acts as the judge and grades answers `C` (grounded) or `I` (hallucinated). Golden dataset is at `eval/datasets/hallucination_golden.json`. The system prompt instructs ClaimVoice to answer using **only** facts in the provided plan context — any coverage or cost claim not in the context is scored as a hallucination.
 
 ### Observability
 
