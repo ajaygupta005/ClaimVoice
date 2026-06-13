@@ -235,3 +235,11 @@ What it does in order:
 5. Spawns each service as a background process; logs go to `.logs/<service>.log`
 
 PIDs are saved to `.claimvoice.pids` so `--stop` can terminate them cleanly. Re-running start while services are already up: run `--stop` first, then start again. On Windows, `taskkill /F` is used instead of SIGTERM.
+
+
+### Ws-2 Enhcanements: Done
+1. /Users/ssachindeep/code/IISc/DeepLearning/project/ClaimVoice/docs/components/17-ws2-dashboard-shell
+
+### Enhcanements: To-Do
+
+- /Users/ssachindeep/code/IISc/DeepLearning/project/ClaimVoice/docs/components/20-ws2-browser-voice-ui
