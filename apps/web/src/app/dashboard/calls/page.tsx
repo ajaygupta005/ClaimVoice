@@ -1,3 +1,12 @@
+import PlaceholderPage from '@/components/PlaceholderPage'
+import { Phone } from 'lucide-react'
+
 export default function CallsPage() {
-  return <div className="p-6"><h2 className="text-xl">Calls</h2></div>
+  return (
+    <PlaceholderPage
+      title="Call History"
+      description="Review past conversations and coverage answers."
+      Icon={Phone}
+    />
+  )
 }

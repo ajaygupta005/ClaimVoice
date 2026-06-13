@@ -1,3 +1,12 @@
+import PlaceholderPage from '@/components/PlaceholderPage'
+import { MapPin } from 'lucide-react'
+
 export default function ProvidersPage() {
-  return <div className="p-6"><h2 className="text-xl">Providers</h2></div>
+  return (
+    <PlaceholderPage
+      title="Find Providers"
+      description="Search for in-network doctors, specialists, and facilities near you."
+      Icon={MapPin}
+    />
+  )
 }

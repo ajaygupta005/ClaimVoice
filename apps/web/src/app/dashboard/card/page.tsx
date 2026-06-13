@@ -1,3 +1,12 @@
+import PlaceholderPage from '@/components/PlaceholderPage'
+import { CreditCard } from 'lucide-react'
+
 export default function CardPage() {
-  return <div className="p-6"><h2 className="text-xl">Card</h2></div>
+  return (
+    <PlaceholderPage
+      title="Insurance Card"
+      description="Upload your insurance card to extract plan details automatically."
+      Icon={CreditCard}
+    />
+  )
 }

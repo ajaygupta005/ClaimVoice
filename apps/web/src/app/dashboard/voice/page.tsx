@@ -1,3 +1,12 @@
+import PlaceholderPage from '@/components/PlaceholderPage'
+import { Mic } from 'lucide-react'
+
 export default function VoicePage() {
-  return <div className="p-6"><h2 className="text-xl">Voice</h2></div>
+  return (
+    <PlaceholderPage
+      title="Voice Assistant"
+      description="Ask questions about your coverage and get instant answers."
+      Icon={Mic}
+    />
+  )
 }

@@ -1,3 +1,12 @@
+import PlaceholderPage from '@/components/PlaceholderPage'
+import { FileText } from 'lucide-react'
+
 export default function PlanPage() {
-  return <div className="p-6"><h2 className="text-xl">Plan</h2></div>
+  return (
+    <PlaceholderPage
+      title="Plan Details"
+      description="View your coverage, deductibles, and benefit summary."
+      Icon={FileText}
+    />
+  )
 }
