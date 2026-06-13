@@ -28,10 +28,3 @@
 17. [ ] Open `/dashboard/plan`.
 18. [ ] Confirm the page renders inside the dashboard shell.
 19. [ ] Confirm no backend service is required.
-
-### Commit
-20. [ ] Stage only frontend plan-view files and this component docs.
-21. [ ] Commit with:
-
-```bash
-git commit -m "feat(web): add plan details view"

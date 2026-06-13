@@ -1,3 +1,150 @@
+// ── Voice assistant (Component 21) ───────────────────────────────────────────
+
+export type TurnRole = 'member' | 'assistant'
+
+export interface VoiceTurn {
+  id: string
+  role: TurnRole
+  text: string
+  timestampMs: number   // ms offset from session start for display
+}
+
+export type ToolStage =
+  | 'identify_member'
+  | 'check_coverage'
+  | 'find_provider'
+  | 'fact_check'
+  | 'done'
+
+export interface ToolCall {
+  stage: ToolStage
+  label: string
+  detail: string
+  status: 'completed' | 'running' | 'pending'
+}
+
+export const mockVoiceTranscript: VoiceTurn[] = [
+  { id: 't1', role: 'member',    text: 'Is an MRI of the brain covered under my plan?',            timestampMs:  1000 },
+  { id: 't2', role: 'assistant', text: 'Yes, MRI is covered. Since you have not met your deductible, you would pay the negotiated rate up to your remaining $4,050 deductible. Prior authorization is required — your provider needs to submit the request to BlueCross BlueShield before scheduling.',  timestampMs:  4200 },
+  { id: 't3', role: 'member',    text: 'What is my copay for a primary care visit?',                timestampMs: 12000 },
+  { id: 't4', role: 'assistant', text: 'Your in-network primary care copay is $35 per visit under your Silver PPO 4500 plan.',  timestampMs: 14500 },
+  { id: 't5', role: 'member',    text: 'Is lisinopril covered on my formulary?',                    timestampMs: 22000 },
+  { id: 't6', role: 'assistant', text: 'Yes, lisinopril is on your formulary as a Tier 1 generic. Your copay is $10 per fill.',  timestampMs: 24800 },
+]
+
+export const mockLatestAnswer: VoiceTurn = mockVoiceTranscript[mockVoiceTranscript.length - 1]
+
+export const mockToolStages: ToolCall[] = [
+  { stage: 'identify_member', label: 'Identify member',   detail: 'Maya Thompson · CVX-0042-MT verified',          status: 'completed' },
+  { stage: 'check_coverage',  label: 'Check coverage',    detail: 'Formulary lookup · Tier 1 generic confirmed',   status: 'completed' },
+  { stage: 'find_provider',   label: 'Find provider',     detail: 'Not required for formulary query',              status: 'completed' },
+  { stage: 'fact_check',      label: 'Hallucination guard', detail: 'Answer grounded in plan data · no flags',     status: 'completed' },
+]
+
+export type VoiceStatus = 'idle' | 'listening' | 'processing' | 'speaking'
+
+// ── Provider search (Component 20) ───────────────────────────────────────────
+
+export interface Provider {
+  id: string
+  name: string
+  specialty: string
+  subspecialty?: string
+  distanceMi: number
+  inNetwork: boolean
+  acceptingPatients: boolean
+  rating: number       // 1–5
+  reviewCount: number
+  address: string
+  neighborhood: string
+  phone: string
+  npi: string
+  note?: string
+  lat: number
+  lng: number
+}
+
+export const mockProviders: Provider[] = [
+  {
+    id: 'p1', name: 'Dr. Rachel Kim', specialty: 'Internal Medicine', subspecialty: 'Primary Care',
+    distanceMi: 0.4, inNetwork: true, acceptingPatients: true, rating: 4.8, reviewCount: 312,
+    address: '425 Madison Ave, New York, NY 10017', neighborhood: 'Midtown East',
+    phone: '(212) 555-0101', npi: '1234567890',
+    note: 'Same-day appointments available. Telehealth offered.',
+    lat: 40.7563, lng: -73.9763,
+  },
+  {
+    id: 'p2', name: 'Dr. James Osei', specialty: 'Cardiology',
+    distanceMi: 0.9, inNetwork: true, acceptingPatients: true, rating: 4.6, reviewCount: 184,
+    address: '520 East 70th St, New York, NY 10021', neighborhood: 'Upper East Side',
+    phone: '(212) 555-0144', npi: '1234567891',
+    note: 'Affiliated with Weill Cornell Medicine.',
+    lat: 40.7678, lng: -73.9540,
+  },
+  {
+    id: 'p3', name: 'Dr. Sofia Reyes', specialty: 'Dermatology',
+    distanceMi: 1.1, inNetwork: true, acceptingPatients: false, rating: 4.9, reviewCount: 541,
+    address: '245 E 54th St, New York, NY 10022', neighborhood: 'Sutton Place',
+    phone: '(212) 555-0178', npi: '1234567892',
+    note: 'Not accepting new patients. Waitlist available.',
+    lat: 40.7572, lng: -73.9631,
+  },
+  {
+    id: 'p4', name: 'Dr. Marcus Webb', specialty: 'Orthopedic Surgery',
+    distanceMi: 1.4, inNetwork: true, acceptingPatients: true, rating: 4.5, reviewCount: 209,
+    address: '333 East 38th St, New York, NY 10016', neighborhood: 'Murray Hill',
+    phone: '(212) 555-0222', npi: '1234567893',
+    note: 'Prior auth required for surgical consults.',
+    lat: 40.7476, lng: -73.9738,
+  },
+  {
+    id: 'p5', name: 'Dr. Priya Nair', specialty: 'Psychiatry', subspecialty: 'Adult Mental Health',
+    distanceMi: 0.7, inNetwork: true, acceptingPatients: true, rating: 4.7, reviewCount: 97,
+    address: '150 W 55th St, New York, NY 10019', neighborhood: 'Midtown West',
+    phone: '(212) 555-0255', npi: '1234567894',
+    note: 'Telehealth and in-person available. $40 copay.',
+    lat: 40.7637, lng: -73.9800,
+  },
+  {
+    id: 'p6', name: 'Dr. Thomas Chen', specialty: 'Radiology', subspecialty: 'Advanced Imaging',
+    distanceMi: 2.1, inNetwork: false, acceptingPatients: true, rating: 4.3, reviewCount: 56,
+    address: '10 Union Square East, New York, NY 10003', neighborhood: 'Union Square',
+    phone: '(212) 555-0288', npi: '1234567895',
+    note: 'Out-of-network — 50% coinsurance applies. Prior auth required.',
+    lat: 40.7357, lng: -73.9911,
+  },
+  {
+    id: 'p7', name: 'Dr. Amara Johnson', specialty: 'Obstetrics & Gynecology',
+    distanceMi: 1.6, inNetwork: true, acceptingPatients: true, rating: 4.8, reviewCount: 421,
+    address: '115 East 57th St, New York, NY 10022', neighborhood: 'Midtown East',
+    phone: '(212) 555-0311', npi: '1234567896',
+    note: 'Maternity care fully covered under your PPO.',
+    lat: 40.7604, lng: -73.9697,
+  },
+  {
+    id: 'p8', name: 'Dr. Leo Marchetti', specialty: 'Ophthalmology',
+    distanceMi: 0.6, inNetwork: true, acceptingPatients: true, rating: 4.4, reviewCount: 133,
+    address: '30 East 40th St, New York, NY 10016', neighborhood: 'Murray Hill',
+    phone: '(212) 555-0344', npi: '1234567897',
+    note: 'Annual eye exam covered at $0 under vision benefit.',
+    lat: 40.7516, lng: -73.9803,
+  },
+]
+
+export const SPECIALTIES = [
+  'All specialties',
+  'Internal Medicine',
+  'Cardiology',
+  'Dermatology',
+  'Orthopedic Surgery',
+  'Psychiatry',
+  'Radiology',
+  'Obstetrics & Gynecology',
+  'Ophthalmology',
+]
+
+// ── Member (reused by Sidebar / other components) ─────────────────────────────
+
 export const mockMember = {
   name: 'Maya Thompson',
   plan: 'Silver PPO 4500',
