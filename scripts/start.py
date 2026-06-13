@@ -46,30 +46,93 @@ def hdr(msg: str)  -> None: print(_c("1;36", f"\n{msg}"))
 def info(msg: str) -> None: print(f"     {msg}")
 
 
+# ── Tool resolution ───────────────────────────────────────────────────────────
+
+def _find_tool(name: str) -> str | None:
+    """Return the executable path for a tool, checking PATH and common install locations."""
+    found = shutil.which(name)
+    if found:
+        return found
+
+    # Extra candidate locations per tool (macOS / Linux / Windows)
+    candidates: list[Path] = []
+    home = Path.home()
+
+    if name == "pnpm":
+        candidates = [
+            # Corepack shims (Node built-in manager, macOS/Linux)
+            home / ".corepack" / "shims" / "pnpm",
+            # pnpm standalone installer default
+            home / ".local" / "share" / "pnpm" / "pnpm",
+            # Homebrew on Apple Silicon
+            Path("/opt/homebrew/bin/pnpm"),
+            # Homebrew on Intel Mac / Linux
+            Path("/usr/local/bin/pnpm"),
+            # Windows: pnpm standalone installer
+            home / "AppData" / "Local" / "pnpm" / "pnpm.cmd",
+            home / "AppData" / "Roaming" / "npm" / "pnpm.cmd",
+        ]
+    elif name == "uv":
+        candidates = [
+            home / ".local" / "bin" / "uv",
+            home / ".cargo" / "bin" / "uv",
+            Path("/opt/homebrew/bin/uv"),
+            Path("/usr/local/bin/uv"),
+            home / "AppData" / "Local" / "uv" / "bin" / "uv.exe",
+        ]
+    elif name == "just":
+        candidates = [
+            home / ".cargo" / "bin" / "just",
+            Path("/opt/homebrew/bin/just"),
+            Path("/usr/local/bin/just"),
+            home / "AppData" / "Local" / "just" / "just.exe",
+        ]
+    elif name == "dvc":
+        candidates = [
+            home / ".local" / "bin" / "dvc",
+            Path("/opt/homebrew/bin/dvc"),
+            Path("/usr/local/bin/dvc"),
+        ]
+
+    for path in candidates:
+        if path.exists():
+            return str(path)
+
+    return None
+
+
+# Resolved tool paths (populated by check_prerequisites)
+TOOLS: dict[str, str] = {}
+
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 
-REQUIRED_TOOLS = [
-    ("docker",  "https://docs.docker.com/get-docker/"),
-    ("pnpm",    "https://pnpm.io/installation"),
-    ("uv",      "https://docs.astral.sh/uv/getting-started/installation/"),
-    ("just",    "https://github.com/casey/just#installation"),
-    ("dvc",     "https://dvc.org/doc/install"),
+# required=True → hard failure; required=False → warning only
+TOOLS_SPEC = [
+    ("docker", True,  "https://docs.docker.com/get-docker/"),
+    ("pnpm",   True,  "https://pnpm.io/installation"),
+    ("uv",     True,  "https://docs.astral.sh/uv/getting-started/installation/"),
+    ("just",   False, "https://github.com/casey/just#installation"),
+    ("dvc",    False, "https://dvc.org/doc/install"),
 ]
 
 def check_prerequisites() -> bool:
     hdr("Checking prerequisites")
     all_ok = True
-    for tool, install_url in REQUIRED_TOOLS:
-        if shutil.which(tool):
-            ok(tool)
-        else:
-            err(f"{tool} not found  →  {install_url}")
+    for name, required, install_url in TOOLS_SPEC:
+        path = _find_tool(name)
+        if path:
+            TOOLS[name] = path
+            label = name if shutil.which(name) else f"{name} (found at {path})"
+            ok(label)
+        elif required:
+            err(f"{name} not found  →  {install_url}")
             all_ok = False
+        else:
+            warn(f"{name} not found (optional)  →  {install_url}")
 
     # Docker daemon running?
-    result = subprocess.run(
-        ["docker", "info"], capture_output=True, text=True
-    )
+    docker = TOOLS.get("docker", "docker")
+    result = subprocess.run([docker, "info"], capture_output=True, text=True)
     if result.returncode != 0:
         err("Docker daemon is not running — start Docker Desktop first")
         all_ok = False
@@ -117,9 +180,12 @@ def load_env() -> None:
 def install_dependencies() -> None:
     hdr("Installing dependencies")
 
+    pnpm = TOOLS.get("pnpm", "pnpm")
+    uv   = TOOLS.get("uv",   "uv")
+
     # Node (pnpm)
     info("pnpm install ...")
-    r = subprocess.run(["pnpm", "install"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([pnpm, "install"], cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         err(f"pnpm install failed:\n{r.stderr}")
         sys.exit(1)
@@ -127,7 +193,7 @@ def install_dependencies() -> None:
 
     # Python (uv)
     info("uv sync ...")
-    r = subprocess.run(["uv", "sync"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([uv, "sync"], cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:
         err(f"uv sync failed:\n{r.stderr}")
         sys.exit(1)
@@ -138,9 +204,10 @@ def install_dependencies() -> None:
 
 def start_infra() -> None:
     hdr("Starting Docker infrastructure")
+    docker = TOOLS.get("docker", "docker")
     info("docker compose up -d ...")
     r = subprocess.run(
-        ["docker", "compose", "up", "-d"],
+        [docker, "compose", "up", "-d"],
         cwd=ROOT, capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -152,7 +219,7 @@ def start_infra() -> None:
     info("Waiting for Postgres ...")
     for attempt in range(30):
         probe = subprocess.run(
-            ["docker", "exec", "claimvoice-postgres-1",
+            [docker, "exec", "claimvoice-postgres-1",
              "pg_isready", "-U", "postgres"],
             capture_output=True,
         )
@@ -186,45 +253,48 @@ def _spawn(label: str, cmd: list[str], cwd: Path) -> subprocess.Popen:  # type: 
 def start_services() -> None:
     hdr("Starting services")
 
+    pnpm = TOOLS.get("pnpm", "pnpm")
+    uv   = TOOLS.get("uv",   "uv")
+
     services: list[tuple[str, list[str], Path]] = [
         # (label, command, cwd)
         (
             "api-gateway",
-            ["pnpm", "--filter", "@claimvoice/api-gateway", "dev"],
+            [pnpm, "--filter", "@claimvoice/api-gateway", "dev"],
             ROOT,
         ),
         (
             "telephony",
-            ["pnpm", "--filter", "@claimvoice/telephony", "dev"],
+            [pnpm, "--filter", "@claimvoice/telephony", "dev"],
             ROOT,
         ),
         (
             "document-ai",
-            ["uv", "run", "uvicorn", "document_ai.main:app",
+            [uv, "run", "uvicorn", "document_ai.main:app",
              "--host", "0.0.0.0", "--port", "8001", "--reload"],
             ROOT / "services" / "document-ai",
         ),
         (
             "eligibility",
-            ["uv", "run", "uvicorn", "eligibility.main:app",
+            [uv, "run", "uvicorn", "eligibility.main:app",
              "--host", "0.0.0.0", "--port", "8002", "--reload"],
             ROOT / "services" / "eligibility",
         ),
         (
             "providers",
-            ["uv", "run", "uvicorn", "providers.main:app",
+            [uv, "run", "uvicorn", "providers.main:app",
              "--host", "0.0.0.0", "--port", "8003", "--reload"],
             ROOT / "services" / "providers",
         ),
         (
             "voice-agent",
-            ["uv", "run", "uvicorn", "voice_agent.main:app",
+            [uv, "run", "uvicorn", "voice_agent.main:app",
              "--host", "0.0.0.0", "--port", "8004", "--reload"],
             ROOT / "services" / "voice-agent",
         ),
         (
             "web",
-            ["pnpm", "--filter", "@claimvoice/web", "dev"],
+            [pnpm, "--filter", "@claimvoice/web", "dev"],
             ROOT,
         ),
     ]
@@ -286,7 +356,8 @@ def stop_services() -> None:
 
     # Also stop docker infra
     info("Stopping Docker infra ...")
-    subprocess.run(["docker", "compose", "down"], cwd=ROOT, capture_output=True)
+    docker = TOOLS.get("docker", "docker")
+    subprocess.run([docker, "compose", "down"], cwd=ROOT, capture_output=True)
     ok("Docker infra stopped")
 
 
@@ -306,13 +377,19 @@ def main() -> None:
 
     print(_c("1;35", "\n  ClaimVoice — local startup\n"))
 
-    if not check_prerequisites():
-        err("\nFix the missing prerequisites above, then re-run.")
-        sys.exit(1)
+    prereqs_ok = check_prerequisites()
 
     if args.check:
-        ok("All prerequisites satisfied")
+        if prereqs_ok:
+            ok("All required prerequisites satisfied")
+        else:
+            err("Some required prerequisites are missing — see above")
+            sys.exit(1)
         return
+
+    if not prereqs_ok:
+        err("\nFix the missing required prerequisites above, then re-run.")
+        sys.exit(1)
 
     load_env()
     install_dependencies()
