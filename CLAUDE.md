@@ -218,7 +218,7 @@ Prompts are versioned in `packages/shared-prompts/` (subdirs: `card_extraction/`
 
 
 ### Startup Script (`scripts/start.py`)
-
+# Done
 Cross-platform (macOS, Linux, Windows) — requires only Python 3.12, which is already a project prerequisite.
 
 ```bash
