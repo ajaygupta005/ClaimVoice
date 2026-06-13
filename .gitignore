@@ -23,3 +23,7 @@ mlruns/
 .idea/
 .vscode/
 *.log
+
+# startup script runtime artifacts
+.logs/
+.claimvoice.pids

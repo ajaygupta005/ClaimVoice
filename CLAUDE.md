@@ -215,3 +215,23 @@ Prompts are versioned in `packages/shared-prompts/` (subdirs: `card_extraction/`
 - Pre-commit `detect-secrets` blocks credential commits
 - PII is redacted before logging; audio recordings are encrypted
 - Consent state is tracked per-call in the Telephony service
+
+
+### Startup Script (`scripts/start.py`)
+
+Cross-platform (macOS, Linux, Windows) — requires only Python 3.12, which is already a project prerequisite.
+
+```bash
+python scripts/start.py           # full startup: checks prereqs, loads .env, installs deps, starts infra + all services
+python scripts/start.py --check   # prerequisite check only (docker, pnpm, uv, just, dvc)
+python scripts/start.py --stop    # gracefully stop all background services + docker infra
+```
+
+What it does in order:
+1. Checks that `docker`, `pnpm`, `uv`, `just`, `dvc` are on `PATH` and Docker daemon is running
+2. Copies `.env.example` → `.env` if `.env` is missing, then loads all vars into the environment
+3. Runs `pnpm install` then `uv sync` (idempotent — safe to re-run)
+4. `docker compose up -d` and waits for Postgres to be ready
+5. Spawns each service as a background process; logs go to `.logs/<service>.log`
+
+PIDs are saved to `.claimvoice.pids` so `--stop` can terminate them cleanly. Re-running start while services are already up: run `--stop` first, then start again. On Windows, `taskkill /F` is used instead of SIGTERM.
