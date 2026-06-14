@@ -13,12 +13,23 @@ _engine = None
 _SessionLocal = None
 
 
+def _normalise_url(url: str) -> str:
+    # Ensure the psycopg3 driver is used. Strip any existing +driver suffix
+    # from the scheme first so we never end up with ++psycopg.
+    if url.startswith("postgresql"):
+        scheme, rest = url.split("://", 1)
+        base = scheme.split("+")[0]  # "postgresql"
+        url = f"{base}+psycopg://{rest}"
+    return url
+
+
 def _get_engine():
     global _engine, _SessionLocal
     if _engine is None:
-        url = os.environ.get("DATABASE_URL", "")
-        if not url:
+        raw = os.environ.get("DATABASE_URL", "")
+        if not raw:
             raise RuntimeError("DATABASE_URL is not set")
+        url = _normalise_url(raw)
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _engine

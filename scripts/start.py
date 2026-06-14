@@ -16,6 +16,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -320,14 +322,22 @@ def start_infra() -> None:
 
 PIDFILE = ROOT / ".claimvoice.pids"
 
-def _spawn(label: str, cmd: list[str], cwd: Path) -> subprocess.Popen:  # type: ignore[type-arg]
+def _spawn(
+    label: str,
+    cmd: list[str],
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.Popen:  # type: ignore[type-arg]
     log_path = ROOT / f".logs/{label}.log"
     log_path.parent.mkdir(exist_ok=True)
     log_file = log_path.open("w")
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
-        env=os.environ.copy(),
+        env=env,
         stdout=log_file,
         stderr=log_file,
         # On Windows, CREATE_NEW_PROCESS_GROUP lets us send Ctrl-Break to stop
@@ -336,64 +346,133 @@ def _spawn(label: str, cmd: list[str], cwd: Path) -> subprocess.Popen:  # type: 
     return proc
 
 
+def _health_check(label: str, url: str, timeout: int = 30) -> bool:
+    """
+    Poll `url` every second for up to `timeout` seconds.
+    Returns True when the endpoint responds with HTTP 2xx, False on timeout.
+    On failure, prints the last 30 lines from the service log.
+    """
+    log_path = ROOT / f".logs/{label}.log"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                if resp.status < 300:
+                    return True
+        except Exception:
+            pass
+        time.sleep(1)
+
+    err(f"{label} did not become healthy at {url} within {timeout}s")
+    if log_path.exists():
+        lines = log_path.read_text(errors="replace").splitlines()
+        tail = lines[-30:] if len(lines) > 30 else lines
+        print(_c("33", f"\n  --- last {len(tail)} lines of .logs/{label}.log ---"))
+        for line in tail:
+            print(f"  {line}")
+        print(_c("33", "  ---"))
+    return False
+
+
 def start_services() -> None:
     hdr("Starting services")
 
     pnpm = TOOLS.get("pnpm", ["pnpm"])
     uv   = TOOLS.get("uv",   ["uv"])
 
-    services: list[tuple[str, list[str], Path]] = [
-        # (label, command, cwd)
+    # Python services use a src/ layout; each service's src/ dir must be on
+    # PYTHONPATH so uvicorn can import the package without an editable install.
+    def _py_env(service_name: str) -> dict[str, str]:
+        src_dir = str(ROOT / "services" / service_name / "src")
+        existing = os.environ.get("PYTHONPATH", "")
+        merged = f"{src_dir}{os.pathsep}{existing}" if existing else src_dir
+        return {"PYTHONPATH": merged}
+
+    # (label, command, cwd, extra_env, health_url | None)
+    ServiceDef = tuple[str, list[str], Path, dict[str, str] | None, str | None]
+    services: list[ServiceDef] = [
         (
             "api-gateway",
             pnpm + ["--filter", "@claimvoice/api-gateway", "dev"],
             ROOT,
+            None,
+            "http://localhost:8080/health",
         ),
         (
             "telephony",
             pnpm + ["--filter", "@claimvoice/telephony", "dev"],
             ROOT,
+            None,
+            "http://localhost:8005/health",
         ),
         (
             "document-ai",
             uv + ["run", "uvicorn", "document_ai.main:app",
              "--host", "0.0.0.0", "--port", "8001", "--reload"],
             ROOT / "services" / "document-ai",
+            _py_env("document-ai"),
+            "http://localhost:8001/health",
         ),
         (
             "eligibility",
             uv + ["run", "uvicorn", "eligibility.main:app",
              "--host", "0.0.0.0", "--port", "8002", "--reload"],
             ROOT / "services" / "eligibility",
+            _py_env("eligibility"),
+            "http://localhost:8002/health",
         ),
         (
             "providers",
             uv + ["run", "uvicorn", "providers.main:app",
              "--host", "0.0.0.0", "--port", "8003", "--reload"],
             ROOT / "services" / "providers",
+            _py_env("providers"),
+            "http://localhost:8003/health",
         ),
         (
             "voice-agent",
             uv + ["run", "uvicorn", "voice_agent.main:app",
              "--host", "0.0.0.0", "--port", "8004", "--reload"],
             ROOT / "services" / "voice-agent",
+            _py_env("voice-agent"),
+            "http://localhost:8004/health",
         ),
         (
             "web",
             pnpm + ["--filter", "@claimvoice/web", "dev"],
             ROOT,
+            None,
+            None,  # Next.js takes too long on first build; skip health-check
         ),
     ]
 
     pids: list[str] = []
-    for label, cmd, cwd in services:
-        proc = _spawn(label, cmd, cwd)
+    failed: list[str] = []
+
+    for label, cmd, cwd, extra_env, health_url in services:
+        proc = _spawn(label, cmd, cwd, extra_env)
         pids.append(f"{label}:{proc.pid}")
-        ok(f"{label}  (pid {proc.pid})  →  .logs/{label}.log")
+        info(f"spawned {label}  (pid {proc.pid})  →  .logs/{label}.log")
 
     PIDFILE.write_text("\n".join(pids))
 
-    hdr("All services started")
+    # Health-check pass: verify each service that exposes /health
+    hdr("Waiting for services to be healthy")
+    for label, _cmd, _cwd, _extra_env, health_url in services:
+        if health_url is None:
+            continue
+        if _health_check(label, health_url, timeout=30):
+            ok(f"{label}  {health_url}")
+        else:
+            failed.append(label)
+
+    if failed:
+        print()
+        err(f"The following services failed to start: {', '.join(failed)}")
+        err("Check .logs/<service>.log for details, then re-run after fixing.")
+        sys.exit(1)
+
+    hdr("All services healthy")
     print()
     info("  Web app        →  http://localhost:3000")
     info("  API gateway    →  http://localhost:8080")
