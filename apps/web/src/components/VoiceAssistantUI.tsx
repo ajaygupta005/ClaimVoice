@@ -9,6 +9,7 @@ import {
   mockVoiceTranscript,
   type VoiceTurn, type VoiceStatus,
 } from '@/lib/mock-data'
+import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
 
 // ── Waveform ──────────────────────────────────────────────────────────────────
 
@@ -160,8 +161,6 @@ function getPipelineSteps(status: VoiceStatus): PipeStep[] {
 
 // ── Backend connections rail ──────────────────────────────────────────────────
 
-type LedStatus = 'connected' | 'demo' | 'degraded' | 'offline'
-
 function LedRow({ label, ledStatus }: { label: string; ledStatus: LedStatus }) {
   const dot: Record<LedStatus, string> = {
     connected: 'bg-green-500',
@@ -177,57 +176,72 @@ function LedRow({ label, ledStatus }: { label: string; ledStatus: LedStatus }) {
   )
 }
 
-// ── Mock answers ──────────────────────────────────────────────────────────────
-
-const MOCK_ANSWERS = [
-  'Your annual physical is covered at $0 as preventive care when seen by an in-network provider.',
-  'Telehealth visits are covered at $0 copay under your Silver PPO 4500 plan.',
-  'Mental health therapy is covered at a $40 copay per in-network session.',
-  'You will pay 20% coinsurance after your deductible for outpatient surgery.',
-  'Your urgent care copay is $75 per visit in-network.',
+// Predefined voice questions cycled through when the user pushes to talk
+const VOICE_QUESTIONS = [
+  'Is an MRI of the brain covered?',
+  'What is my urgent care copay?',
+  'Is lisinopril on my formulary?',
+  'Find a cardiologist near me who is in network',
+  'Do I need prior authorization for an MRI?',
+  'My claim was denied — can you help?',
 ]
-let answerIdx = 0
-function nextAnswer() { return MOCK_ANSWERS[answerIdx++ % MOCK_ANSWERS.length] }
+let voiceQIdx = 0
+function nextVoiceQuestion() { return VOICE_QUESTIONS[voiceQIdx++ % VOICE_QUESTIONS.length] }
+
+const DEFAULT_BACKENDS: BackendStatus[] = [
+  { label: 'Voice Agent API',     detail: 'localhost:8004',         status: 'demo' },
+  { label: 'STT',                 detail: 'Deepgram Nova-2',        status: 'demo' },
+  { label: 'TTS',                 detail: 'Cartesia Sonic',         status: 'demo' },
+  { label: 'Hallucination guard', detail: 'guards/hallucination.py', status: 'demo' },
+  { label: 'Telephony bridge',    detail: 'Twilio Media Streams',   status: 'demo' },
+]
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function VoiceAssistantUI() {
-  const [status, setStatus] = useState<VoiceStatus>('idle')
-  const [turns, setTurns]   = useState<VoiceTurn[]>(mockVoiceTranscript)
-  const [input, setInput]   = useState('')
-  const transcriptRef       = useRef<HTMLDivElement>(null)
+  const [status,   setStatus]   = useState<VoiceStatus>('idle')
+  const [turns,    setTurns]    = useState<VoiceTurn[]>(mockVoiceTranscript)
+  const [input,    setInput]    = useState('')
+  const [backends, setBackends] = useState<BackendStatus[]>(DEFAULT_BACKENDS)
+  const [guardPassed, setGuardPassed] = useState<boolean | null>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (transcriptRef.current)
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
   }, [turns])
 
+  function runPipeline(question: string) {
+    // Show processing state briefly so the pipeline feels active
+    setStatus('processing')
+    setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: question, timestampMs: Date.now() }])
+
+    setTimeout(() => {
+      const result = runMockPipeline(question)
+      setStatus('speaking')
+      setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: result.answer, timestampMs: Date.now() }])
+      setBackends(result.backends)
+      setGuardPassed(result.guard.passed)
+      setTimeout(() => setStatus('idle'), result.tts.durationEstimateMs > 0 ? Math.min(result.tts.durationEstimateMs, 3000) : 2200)
+    }, 1400)
+  }
+
   function handlePushToTalk() {
     if (status === 'processing' || status === 'speaking') return
-    if (status === 'listening') { setStatus('idle'); return }
+    if (status === 'listening') {
+      // Commit a simulated voice question
+      const question = nextVoiceQuestion()
+      runPipeline(question)
+      return
+    }
     setStatus('listening')
-    setTimeout(() => {
-      setStatus('processing')
-      setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: '(voice input — simulated)', timestampMs: Date.now() }])
-      setTimeout(() => {
-        setStatus('speaking')
-        setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: nextAnswer(), timestampMs: Date.now() }])
-        setTimeout(() => setStatus('idle'), 2200)
-      }, 1600)
-    }, 2000)
   }
 
   function handleSend() {
     const text = input.trim()
     if (!text || status !== 'idle') return
     setInput('')
-    setStatus('processing')
-    setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text, timestampMs: Date.now() }])
-    setTimeout(() => {
-      setStatus('speaking')
-      setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: nextAnswer(), timestampMs: Date.now() }])
-      setTimeout(() => setStatus('idle'), 2200)
-    }, 1300)
+    runPipeline(text)
   }
 
   const latestAssistant = [...turns].reverse().find(t => t.role === 'assistant')
@@ -254,13 +268,23 @@ export default function VoiceAssistantUI() {
         {/* Latest answer */}
         <div className={`rounded-xl border overflow-hidden ${
           latestAssistant
-            ? 'bg-white dark:bg-slate-900 border-green-200 dark:border-green-800/50'
+            ? guardPassed === false
+              ? 'bg-white dark:bg-slate-900 border-red-200 dark:border-red-800/50'
+              : 'bg-white dark:bg-slate-900 border-green-200 dark:border-green-800/50'
             : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700'
         }`}>
           <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-            <ShieldCheck size={13} className={latestAssistant ? 'text-green-500' : 'text-slate-400'} />
+            <ShieldCheck size={13} className={
+              latestAssistant
+                ? guardPassed === false ? 'text-red-500' : 'text-green-500'
+                : 'text-slate-400'
+            } />
             <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-              {latestAssistant ? 'Latest answer · hallucination guard passed' : 'Latest answer'}
+              {latestAssistant
+                ? guardPassed === false
+                  ? 'Latest answer · hallucination guard flagged'
+                  : 'Latest answer · hallucination guard passed'
+                : 'Latest answer'}
             </span>
           </div>
           <p className={`px-4 py-3 text-sm leading-relaxed ${
@@ -377,11 +401,9 @@ export default function VoiceAssistantUI() {
           Connections
         </p>
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2">
-          <LedRow label="Voice Agent API"     ledStatus="demo" />
-          <LedRow label="STT"                 ledStatus="demo" />
-          <LedRow label="TTS"                 ledStatus="demo" />
-          <LedRow label="Hallucination guard" ledStatus="demo" />
-          <LedRow label="Telephony bridge"    ledStatus="demo" />
+          {backends.map(b => (
+            <LedRow key={b.label} label={b.label} ledStatus={b.status} />
+          ))}
         </div>
       </div>
 
