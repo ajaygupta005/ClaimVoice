@@ -2,6 +2,7 @@ node_modules/
 .next/
 dist/
 build/
+*.tsbuildinfo
 
 __pycache__/
 *.pyc
@@ -22,3 +23,8 @@ mlruns/
 .idea/
 .vscode/
 *.log
+
+# startup script runtime artifacts
+.logs/
+.claimvoice.pids
+services/voice-agent/src/voice_agent.egg-info/

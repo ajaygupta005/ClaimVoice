@@ -1,16 +1,16 @@
-import Link from 'next/link'
+import Sidebar from '@/components/Sidebar'
+import TutorialModal from '@/components/TutorialModal'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen flex">
-      <nav className="w-48 border-r p-4">
-        <Link href="/dashboard/card">Card</Link><br/>
-        <Link href="/dashboard/plan">Plan</Link><br/>
-        <Link href="/dashboard/providers">Providers</Link><br/>
-        <Link href="/dashboard/voice">Voice</Link><br/>
-        <Link href="/dashboard/calls">Calls</Link>
-      </nav>
-      <section className="flex-1">{children}</section>
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <main className="flex-1 min-w-0 bg-slate-50 dark:bg-slate-950">
+        <div className="max-w-5xl mx-auto px-8 py-8">
+          {children}
+        </div>
+      </main>
+      <TutorialModal />
     </div>
   )
 }

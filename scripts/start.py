@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""
+ClaimVoice local startup script.
+Cross-platform (macOS, Linux, Windows). Requires Python 3.12+.
+
+Usage:
+    python scripts/start.py            # start all services
+    python scripts/start.py --stop     # stop all background processes
+    python scripts/start.py --check    # dependency check only
+"""
+
+import argparse
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+IS_WINDOWS = platform.system() == "Windows"
+
+# ── Colour helpers ────────────────────────────────────────────────────────────
+
+def _supports_colour() -> bool:
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+            return True
+        except Exception:
+            return False
+    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+
+USE_COLOUR = _supports_colour()
+
+def _c(code: str, text: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if USE_COLOUR else text
+
+def ok(msg: str)   -> None: print(_c("32", f"  ✔  {msg}"))
+def warn(msg: str) -> None: print(_c("33", f"  ⚠  {msg}"))
+def err(msg: str)  -> None: print(_c("31", f"  ✖  {msg}"))
+def hdr(msg: str)  -> None: print(_c("1;36", f"\n{msg}"))
+def info(msg: str) -> None: print(f"     {msg}")
+
+
+# ── Tool resolution ───────────────────────────────────────────────────────────
+
+def _find_pnpm() -> list[str] | None:
+    """
+    Return the argv prefix to invoke pnpm, e.g. ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
+    Corepack shims are shell scripts that delegate to whatever `node` is active in the shell.
+    When nvm overrides PATH with an old Node, those shims break. Instead we find a Node binary
+    >= 19 and run Corepack directly through it, guaranteeing the right runtime.
+    """
+    # 1. pnpm is a real binary on PATH (standalone installer, Volta, etc.)
+    found = shutil.which("pnpm")
+    if found:
+        r = subprocess.run([found, "--version"], capture_output=True, text=True)
+        if r.returncode == 0:
+            return [found]
+
+    home = Path.home()
+
+    # 2. Find a Node >= 19 binary, then run corepack pnpm through it
+    node_candidates: list[Path] = []
+
+    # Homebrew Cellar: sorted newest first
+    cellar = Path("/opt/homebrew/Cellar/node")
+    if cellar.exists():
+        node_candidates += sorted(cellar.glob("*/bin/node"), reverse=True)
+
+    # nvm versions: sorted newest first
+    for nvm_root in [
+        home / ".local" / "share" / "nvm",
+        home / ".nvm" / "versions" / "node",
+    ]:
+        if nvm_root.exists():
+            node_candidates += sorted(nvm_root.glob("*/bin/node"), reverse=True)
+
+    # Homebrew prefix bin + system locations
+    node_candidates += [
+        Path("/opt/homebrew/bin/node"),
+        Path("/usr/local/bin/node"),
+    ]
+
+    for node_bin in node_candidates:
+        if not node_bin.exists():
+            continue
+        ver_r = subprocess.run([str(node_bin), "--version"], capture_output=True, text=True)
+        if ver_r.returncode != 0:
+            continue
+        ver_str = ver_r.stdout.strip().lstrip("v")
+        try:
+            major = int(ver_str.split(".")[0])
+        except ValueError:
+            continue
+        if major < 19:
+            continue
+
+        # Look for corepack.js next to this node binary
+        corepack_js = node_bin.parent.parent / "lib" / "node_modules" / "corepack" / "dist" / "corepack.js"
+        if not corepack_js.exists():
+            continue
+
+        # Verify it actually works
+        test = subprocess.run(
+            [str(node_bin), str(corepack_js), "pnpm", "--version"],
+            capture_output=True, text=True,
+        )
+        if test.returncode == 0:
+            return [str(node_bin), str(corepack_js), "pnpm"]
+
+    # 3. Fallback: plain executable candidates (standalone pnpm, Windows)
+    plain_candidates: list[Path] = [
+        home / ".local" / "share" / "pnpm" / "pnpm",
+        home / ".corepack" / "shims" / "pnpm",
+        Path("/opt/homebrew/bin/pnpm"),
+        Path("/usr/local/bin/pnpm"),
+        home / "AppData" / "Local" / "pnpm" / "pnpm.cmd",
+        home / "AppData" / "Roaming" / "npm" / "pnpm.cmd",
+    ]
+    for p in plain_candidates:
+        if p.exists():
+            return [str(p)]
+
+    return None
+
+
+def _find_tool(name: str) -> str | None:
+    """Return the executable path for a tool, checking PATH and common install locations."""
+    found = shutil.which(name)
+    if found:
+        return found
+
+    home = Path.home()
+    candidates: list[Path] = []
+
+    if name == "uv":
+        candidates = [
+            home / ".local" / "bin" / "uv",
+            home / ".cargo" / "bin" / "uv",
+            Path("/opt/homebrew/bin/uv"),
+            Path("/usr/local/bin/uv"),
+            home / "AppData" / "Local" / "uv" / "bin" / "uv.exe",
+        ]
+    elif name == "docker":
+        candidates = [
+            Path("/usr/local/bin/docker"),
+            Path("/opt/homebrew/bin/docker"),
+            home / "AppData" / "Local" / "Docker" / "wsl" / "distro" / "usr" / "bin" / "docker",
+        ]
+    elif name == "just":
+        candidates = [
+            home / ".cargo" / "bin" / "just",
+            Path("/opt/homebrew/bin/just"),
+            Path("/usr/local/bin/just"),
+            home / "AppData" / "Local" / "just" / "just.exe",
+        ]
+    elif name == "dvc":
+        candidates = [
+            home / ".local" / "bin" / "dvc",
+            Path("/opt/homebrew/bin/dvc"),
+            Path("/usr/local/bin/dvc"),
+        ]
+
+    for path in candidates:
+        if path.exists():
+            return str(path)
+
+    return None
+
+
+# Resolved tool invocations (populated by check_prerequisites).
+# Values are argv prefixes: ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
+TOOLS: dict[str, list[str]] = {}
+
+# ── Prerequisite checks ───────────────────────────────────────────────────────
+
+# required=True → hard failure; required=False → warning only
+TOOLS_SPEC = [
+    ("docker", True,  "https://docs.docker.com/get-docker/"),
+    ("pnpm",   True,  "https://pnpm.io/installation"),
+    ("uv",     True,  "https://docs.astral.sh/uv/getting-started/installation/"),
+    ("just",   False, "https://github.com/casey/just#installation"),
+    ("dvc",    False, "https://dvc.org/doc/install"),
+]
+
+def check_prerequisites() -> bool:
+    hdr("Checking prerequisites")
+    all_ok = True
+    for name, required, install_url in TOOLS_SPEC:
+        if name == "pnpm":
+            argv = _find_pnpm()
+            if argv:
+                TOOLS[name] = argv
+                label = "pnpm" if argv == ["pnpm"] else f"pnpm (via {' '.join(argv[:2])})"
+                ok(label)
+            elif required:
+                err(f"{name} not found  →  {install_url}")
+                all_ok = False
+            else:
+                warn(f"{name} not found (optional)  →  {install_url}")
+        else:
+            path = _find_tool(name)
+            if path:
+                TOOLS[name] = [path]
+                label = name if shutil.which(name) else f"{name} (found at {path})"
+                ok(label)
+            elif required:
+                err(f"{name} not found  →  {install_url}")
+                all_ok = False
+            else:
+                warn(f"{name} not found (optional)  →  {install_url}")
+
+    # Docker daemon running?
+    docker_argv = TOOLS.get("docker", ["docker"])
+    result = subprocess.run(docker_argv + ["info"], capture_output=True, text=True)
+    if result.returncode != 0:
+        err("Docker daemon is not running — start Docker Desktop first")
+        all_ok = False
+    else:
+        ok("Docker daemon")
+
+    return all_ok
+
+
+# ── .env handling ─────────────────────────────────────────────────────────────
+
+def load_env() -> None:
+    """Load .env into os.environ if not already set, then export to child procs."""
+    hdr("Loading environment")
+    env_file = ROOT / ".env"
+    env_example = ROOT / ".env.example"
+
+    if not env_file.exists():
+        if env_example.exists():
+            warn(".env not found — copying from .env.example (fill in API keys!)")
+            import shutil as _sh
+            _sh.copy(env_example, env_file)
+        else:
+            warn(".env not found and no .env.example — skipping")
+            return
+
+    lines_loaded = 0
+    with env_file.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key not in os.environ:          # don't clobber shell exports
+                os.environ[key] = val
+            lines_loaded += 1
+
+    ok(f".env loaded ({lines_loaded} vars)")
+
+
+# ── Dependency installation ───────────────────────────────────────────────────
+
+def install_dependencies() -> None:
+    hdr("Installing dependencies")
+
+    pnpm = TOOLS.get("pnpm", ["pnpm"])
+    uv   = TOOLS.get("uv",   ["uv"])
+
+    # Node (pnpm)
+    info("pnpm install ...")
+    r = subprocess.run(pnpm + ["install"], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode != 0:
+        err(f"pnpm install failed:\n{r.stderr}")
+        sys.exit(1)
+    ok("pnpm install")
+
+    # Python (uv)
+    info("uv sync ...")
+    r = subprocess.run(uv + ["sync"], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode != 0:
+        err(f"uv sync failed:\n{r.stderr}")
+        sys.exit(1)
+    ok("uv sync")
+
+
+# ── Docker infra ──────────────────────────────────────────────────────────────
+
+def start_infra() -> None:
+    hdr("Starting Docker infrastructure")
+    docker = TOOLS.get("docker", ["docker"])
+    info("docker compose up -d  (may pull images on first run — this can take a few minutes)")
+    # Stream output so image-pull progress is visible; don't capture
+    r = subprocess.run(
+        docker + ["compose", "up", "-d"],
+        cwd=ROOT,
+    )
+    if r.returncode != 0:
+        err("docker compose up failed — check output above")
+        sys.exit(1)
+    ok("Postgres, Redis, MinIO, MLflow, Langfuse, Prometheus, Grafana")
+
+    # Wait for Postgres to accept connections
+    info("Waiting for Postgres ...")
+    for attempt in range(30):
+        probe = subprocess.run(
+            docker + ["exec", "claimvoice-postgres-1",
+             "pg_isready", "-U", "postgres"],
+            capture_output=True,
+        )
+        if probe.returncode == 0:
+            ok("Postgres ready")
+            return
+        time.sleep(1)
+    warn("Postgres did not become ready in 30 s — proceeding anyway")
+
+
+# ── Service launchers ─────────────────────────────────────────────────────────
+
+PIDFILE = ROOT / ".claimvoice.pids"
+
+def _spawn(label: str, cmd: list[str], cwd: Path) -> subprocess.Popen:  # type: ignore[type-arg]
+    log_path = ROOT / f".logs/{label}.log"
+    log_path.parent.mkdir(exist_ok=True)
+    log_file = log_path.open("w")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=os.environ.copy(),
+        stdout=log_file,
+        stderr=log_file,
+        # On Windows, CREATE_NEW_PROCESS_GROUP lets us send Ctrl-Break to stop
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if IS_WINDOWS else 0,
+    )
+    return proc
+
+
+def start_services() -> None:
+    hdr("Starting services")
+
+    pnpm = TOOLS.get("pnpm", ["pnpm"])
+    uv   = TOOLS.get("uv",   ["uv"])
+
+    services: list[tuple[str, list[str], Path]] = [
+        # (label, command, cwd)
+        (
+            "api-gateway",
+            pnpm + ["--filter", "@claimvoice/api-gateway", "dev"],
+            ROOT,
+        ),
+        (
+            "telephony",
+            pnpm + ["--filter", "@claimvoice/telephony", "dev"],
+            ROOT,
+        ),
+        (
+            "document-ai",
+            uv + ["run", "uvicorn", "document_ai.main:app",
+             "--host", "0.0.0.0", "--port", "8001", "--reload"],
+            ROOT / "services" / "document-ai",
+        ),
+        (
+            "eligibility",
+            uv + ["run", "uvicorn", "eligibility.main:app",
+             "--host", "0.0.0.0", "--port", "8002", "--reload"],
+            ROOT / "services" / "eligibility",
+        ),
+        (
+            "providers",
+            uv + ["run", "uvicorn", "providers.main:app",
+             "--host", "0.0.0.0", "--port", "8003", "--reload"],
+            ROOT / "services" / "providers",
+        ),
+        (
+            "voice-agent",
+            uv + ["run", "uvicorn", "voice_agent.main:app",
+             "--host", "0.0.0.0", "--port", "8004", "--reload"],
+            ROOT / "services" / "voice-agent",
+        ),
+        (
+            "web",
+            pnpm + ["--filter", "@claimvoice/web", "dev"],
+            ROOT,
+        ),
+    ]
+
+    pids: list[str] = []
+    for label, cmd, cwd in services:
+        proc = _spawn(label, cmd, cwd)
+        pids.append(f"{label}:{proc.pid}")
+        ok(f"{label}  (pid {proc.pid})  →  .logs/{label}.log")
+
+    PIDFILE.write_text("\n".join(pids))
+
+    hdr("All services started")
+    print()
+    info("  Web app        →  http://localhost:3000")
+    info("  API gateway    →  http://localhost:8080")
+    info("  Telephony      →  http://localhost:8005")
+    info("  Document AI    →  http://localhost:8001")
+    info("  Eligibility    →  http://localhost:8002")
+    info("  Providers      →  http://localhost:8003")
+    info("  Voice agent    →  http://localhost:8004")
+    info("  MLflow         →  http://localhost:5000")
+    info("  Langfuse       →  http://localhost:3001")
+    info("  Grafana        →  http://localhost:3002")
+    print()
+    info("Logs are in .logs/<service>.log")
+    info("To stop:  python scripts/start.py --stop")
+    print()
+
+
+# ── Stop ──────────────────────────────────────────────────────────────────────
+
+def stop_services() -> None:
+    hdr("Stopping services")
+    if not PIDFILE.exists():
+        warn("No .claimvoice.pids file found — nothing to stop")
+        return
+
+    import signal
+
+    for entry in PIDFILE.read_text().splitlines():
+        if ":" not in entry:
+            continue
+        label, _, pid_str = entry.partition(":")
+        try:
+            pid = int(pid_str)
+            if IS_WINDOWS:
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True)
+            else:
+                os.kill(pid, signal.SIGTERM)
+            ok(f"{label} (pid {pid}) stopped")
+        except (ProcessLookupError, PermissionError):
+            warn(f"{label} (pid {pid}) was already gone")
+        except ValueError:
+            warn(f"Unreadable pid entry: {entry!r}")
+
+    PIDFILE.unlink()
+
+    # Also stop docker infra
+    info("Stopping Docker infra ...")
+    docker = TOOLS.get("docker", ["docker"])
+    subprocess.run(docker + ["compose", "down"], cwd=ROOT, capture_output=True)
+    ok("Docker infra stopped")
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="ClaimVoice local startup")
+    parser.add_argument("--stop",  action="store_true", help="Stop all services")
+    parser.add_argument("--check", action="store_true", help="Check prerequisites only")
+    args = parser.parse_args()
+
+    os.chdir(ROOT)
+
+    if args.stop:
+        stop_services()
+        return
+
+    print(_c("1;35", "\n  ClaimVoice — local startup\n"))
+
+    prereqs_ok = check_prerequisites()
+
+    if args.check:
+        if prereqs_ok:
+            ok("All required prerequisites satisfied")
+        else:
+            err("Some required prerequisites are missing — see above")
+            sys.exit(1)
+        return
+
+    if not prereqs_ok:
+        err("\nFix the missing required prerequisites above, then re-run.")
+        sys.exit(1)
+
+    load_env()
+    install_dependencies()
+    start_infra()
+    start_services()
+
+
+if __name__ == "__main__":
+    main()
