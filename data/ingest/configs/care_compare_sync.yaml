@@ -1,0 +1,17 @@
+care_compare:
+  # CMS Care Compare — Hospital General Information
+  # Dataset: https://data.cms.gov/provider-data/dataset/xubh-q36u
+  # No auth required; public API.
+  api_base: "https://data.cms.gov/provider-data/api/1/datastore/query"
+  dataset_id: "xubh-q36u"
+  page_size: 500
+  redis_ttl_seconds: 86400   # 24-hour page cache
+  redis_host: "localhost"
+  redis_port: 6379
+
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+
+logging:
+  level: "INFO"
+  file: "data/ingest.log"
