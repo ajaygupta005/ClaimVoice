@@ -1,0 +1,93 @@
+"""Read-only repository helpers for provider search and detail."""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+_SELECT_COLS = """
+    id,
+    npi,
+    first_name,
+    last_name,
+    organization_name,
+    credential_text,
+    taxonomy_code,
+    taxonomy_description,
+    practice_location_address_line_1,
+    practice_location_city,
+    practice_location_state,
+    practice_location_zip,
+    practice_location_phone,
+    accepting_new_patients,
+    quality_rating,
+    hospital_name,
+    specialty_codes
+"""
+
+
+def search_providers(
+    session: Session,
+    specialty: Optional[str] = None,
+    state: Optional[str] = None,
+    zip_code: Optional[str] = None,
+    accepting_new_patients: Optional[bool] = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """
+    Search providers by specialty text, state, or zip.  Results are sorted by:
+      1. quality_rating DESC (NULLs last)
+      2. accepting_new_patients DESC (True first)
+      3. last_name / organization_name ASC
+
+    planId is accepted at the API layer but in-network filtering is not yet applied.
+    """
+    clauses = []
+    params: dict[str, Any] = {"limit": limit}
+
+    if specialty:
+        clauses.append(
+            "(taxonomy_description ILIKE :specialty OR "
+            " EXISTS (SELECT 1 FROM unnest(specialty_codes) sc WHERE sc ILIKE :specialty))"
+        )
+        params["specialty"] = f"%{specialty}%"
+
+    if state:
+        clauses.append("practice_location_state = :state")
+        params["state"] = state.upper()
+
+    if zip_code:
+        clauses.append("practice_location_zip = :zip_code")
+        params["zip_code"] = zip_code[:5]
+
+    if accepting_new_patients is not None:
+        clauses.append("accepting_new_patients = :anp")
+        params["anp"] = accepting_new_patients
+
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+    rows = session.execute(
+        text(f"""
+            SELECT {_SELECT_COLS}
+            FROM providers
+            {where}
+            ORDER BY
+                quality_rating DESC NULLS LAST,
+                accepting_new_patients DESC NULLS LAST,
+                COALESCE(last_name, organization_name) ASC
+            LIMIT :limit
+        """),
+        params,
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_provider_by_npi(session: Session, npi: str) -> Optional[dict[str, Any]]:
+    """Return a single provider row by NPI, or None."""
+    row = session.execute(
+        text(f"SELECT {_SELECT_COLS} FROM providers WHERE npi = :npi"),
+        {"npi": npi},
+    ).mappings().first()
+    return dict(row) if row else None
