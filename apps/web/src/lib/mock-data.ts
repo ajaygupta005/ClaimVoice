@@ -1,3 +1,78 @@
+// ── Call history (Component 22) ──────────────────────────────────────────────
+
+export type CallStatus = 'completed' | 'no_answer' | 'transferred' | 'in_progress'
+export type ConsentStatus = 'recorded_with_consent' | 'not_recorded' | 'pending'
+
+export interface CallRecord {
+  id: string
+  memberId: string
+  memberName: string
+  phone: string
+  dateIso: string          // ISO 8601
+  durationSec: number
+  status: CallStatus
+  consentStatus: ConsentStatus
+  mainQuestion: string
+  assistantSummary: string
+  transcript: VoiceTurn[]
+  toolOutcome?: string
+}
+
+export const mockCallHistory: CallRecord[] = [
+  {
+    id: 'CALL-0041',
+    memberId: 'CVX-0042-MT', memberName: 'Maya Thompson', phone: '+12125550101',
+    dateIso: '2026-06-13T14:22:00Z', durationSec: 187, status: 'completed',
+    consentStatus: 'recorded_with_consent',
+    mainQuestion: 'Is an MRI of the brain covered?',
+    assistantSummary: 'Confirmed MRI coverage with prior auth requirement. Member notified of $4,050 remaining deductible.',
+    toolOutcome: 'check_coverage → fact_check passed',
+    transcript: [
+      { id: 'c41-1', role: 'member',    text: 'Is an MRI of the brain covered under my plan?',  timestampMs: 0 },
+      { id: 'c41-2', role: 'assistant', text: 'Yes, MRI is covered. Since you have not met your deductible, you would pay the negotiated rate up to your remaining $4,050 deductible. Prior authorization is required.', timestampMs: 3000 },
+      { id: 'c41-3', role: 'member',    text: 'How do I get prior authorization?',               timestampMs: 9000 },
+      { id: 'c41-4', role: 'assistant', text: 'Your provider submits the prior auth request to BlueCross BlueShield before scheduling. Allow 3–5 business days for a decision.', timestampMs: 12000 },
+    ],
+  },
+  {
+    id: 'CALL-0040',
+    memberId: 'CVX-0042-MT', memberName: 'Maya Thompson', phone: '+12125550101',
+    dateIso: '2026-06-10T09:05:00Z', durationSec: 94, status: 'completed',
+    consentStatus: 'recorded_with_consent',
+    mainQuestion: 'What is my urgent care copay?',
+    assistantSummary: 'Confirmed $75 urgent care copay. Member asked about nearest urgent care location.',
+    toolOutcome: 'check_coverage → find_provider → fact_check passed',
+    transcript: [
+      { id: 'c40-1', role: 'member',    text: 'What is my urgent care copay?',                  timestampMs: 0 },
+      { id: 'c40-2', role: 'assistant', text: 'Your in-network urgent care copay is $75 per visit.', timestampMs: 2500 },
+      { id: 'c40-3', role: 'member',    text: 'Is there an urgent care near Midtown?',           timestampMs: 7000 },
+      { id: 'c40-4', role: 'assistant', text: 'Yes, there are several in-network urgent care centers near Midtown Manhattan. The closest is at 425 Madison Ave.', timestampMs: 10000 },
+    ],
+  },
+  {
+    id: 'CALL-0039',
+    memberId: 'CVX-0042-MT', memberName: 'Maya Thompson', phone: '+12125550101',
+    dateIso: '2026-06-07T16:41:00Z', durationSec: 312, status: 'transferred',
+    consentStatus: 'recorded_with_consent',
+    mainQuestion: 'Why was my claim denied?',
+    assistantSummary: 'Claim denial query outside AI scope. Escalated to human agent after 5 minutes.',
+    toolOutcome: 'escalate_to_human',
+    transcript: [
+      { id: 'c39-1', role: 'member',    text: 'I got a letter saying my claim was denied. Can you help?', timestampMs: 0 },
+      { id: 'c39-2', role: 'assistant', text: 'I can see your plan details, but claim-specific decisions require a human agent. I\'ll transfer you now.', timestampMs: 4000 },
+    ],
+  },
+  {
+    id: 'CALL-0038',
+    memberId: 'CVX-0042-MT', memberName: 'Maya Thompson', phone: '+12125550101',
+    dateIso: '2026-05-28T11:15:00Z', durationSec: 55, status: 'no_answer',
+    consentStatus: 'not_recorded',
+    mainQuestion: '—',
+    assistantSummary: 'Outbound callback attempt. No answer.',
+    transcript: [],
+  },
+]
+
 // ── Voice assistant (Component 21) ───────────────────────────────────────────
 
 export type TurnRole = 'member' | 'assistant'

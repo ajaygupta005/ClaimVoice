@@ -1,4 +1,5 @@
 import Sidebar from '@/components/Sidebar'
+import TutorialModal from '@/components/TutorialModal'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,6 +10,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
+      <TutorialModal />
     </div>
   )
 }

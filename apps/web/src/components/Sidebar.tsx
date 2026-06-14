@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { CreditCard, FileText, MapPin, Mic, Phone, BookOpen } from 'lucide-react'
 import DarkModeToggle from './DarkModeToggle'
 import { mockMember } from '@/lib/mock-data'
+import { useTutorialStore } from '@/lib/tutorial-store'
 
 const NAV_ITEMS: { href: string; label: string; Icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }[] = [
   { href: '/dashboard/card',      label: 'Card',      Icon: CreditCard },
@@ -16,6 +17,7 @@ const NAV_ITEMS: { href: string; label: string; Icon: React.ComponentType<{ size
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const openTutorial = useTutorialStore(s => s.openTutorial)
 
   return (
     <aside className="flex flex-col w-60 min-h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700">
@@ -63,7 +65,10 @@ export default function Sidebar() {
 
       {/* Bottom actions */}
       <div className="px-3 pb-4 flex items-center justify-between">
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <button
+          onClick={openTutorial}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        >
           <BookOpen size={13} />
           Tutorial
         </button>
