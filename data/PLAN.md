@@ -132,9 +132,8 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C6 · Care Compare sync (provider quality ratings)
 **Phase 2 · Day 9 · `feat`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-care-compare-sync`
-**Blocked by**: C2 (needs `providers` populated)
 
 **Files to create**:
 - `ingest/care_compare_sync.py`
@@ -292,7 +291,7 @@ C10 (dvc pipeline)  ──── depends on all above
 | C9 — stubs + seeds | Phase 1 | Day 5 | ⬜ |
 | C4 — formulary | Phase 2 | Day 6 | ✅ |
 | C5 — MRF parser | Phase 2 | Day 7–8 | ⬜ |
-| C6 — Care Compare | Phase 2 | Day 9 | ⬜ |
+| C6 — Care Compare | Phase 2 | Day 9 | ✅ |
 | C7 — ICD/HCPCS | Phase 2 | Day 10 | ✅ |
 | C10 — DVC + CI | Phase 2 | Day 11 | ⬜ |
 
