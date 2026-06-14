@@ -1,0 +1,15 @@
+formulary:
+  # CMS Part D Formulary Reference File CY2026 (quarterly — April and December updates)
+  # Verify URL at: https://www.cms.gov/medicare/prescription-drug-coverage/prescriptiondrugcovgenin/formulary-reference-file
+  # The ZIP contains a pipe-delimited formulary_file.txt with ~2 million rows.
+  download_url: "https://www.cms.gov/files/zip/2026-formulary-reference-file-april.zip"
+  extract_dir: "data/raw/formulary_cy2026"
+  plan_year: 2026
+
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+    batch_size: 5000
+
+logging:
+  level: "INFO"
+  file: "data/ingest.log"
