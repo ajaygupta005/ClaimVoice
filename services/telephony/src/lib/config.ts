@@ -11,6 +11,7 @@ const schema = z.object({
   S3_ACCESS_KEY: z.string().optional(),
   S3_SECRET_KEY: z.string().optional(),
   MASTER_KEY_HEX: z.string().optional(),
+  VOICE_AGENT_WS_URL: z.string().optional(),
 })
 
 export type Config = z.infer<typeof schema>

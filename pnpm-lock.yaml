@@ -135,6 +135,9 @@ importers:
       twilio:
         specifier: ^5.3.0
         version: 5.13.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.21.0
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -145,6 +148,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
       tsx:
         specifier: ^4.19.0
         version: 4.22.4
@@ -1169,6 +1175,9 @@ packages:
 
   '@types/react@19.2.16':
     resolution: {integrity: sha512-esJiCAnl0kfpNdE69f3So4WJUXy95dLZydX0KwK46riIHDzHM7O9Vtf9xCHW0PXIqvgqNrswl522kA/5yx+F4w==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@typescript-eslint/eslint-plugin@8.60.1':
     resolution: {integrity: sha512-JQ4S5GB0tfjO8BuJ4fcX+HodkzJjYBV+7OJ+wLygaX7OGQ7FudyHL4NSCA6ob+w3Yn+5MkKIozOwQhXeM7opVg==}
@@ -4117,6 +4126,10 @@ snapshots:
   '@types/react@19.2.16':
     dependencies:
       csstype: 3.2.3
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 22.19.19
 
   '@typescript-eslint/eslint-plugin@8.60.1(@typescript-eslint/parser@8.60.1(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)':
     dependencies:

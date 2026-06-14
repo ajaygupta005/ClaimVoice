@@ -19,13 +19,15 @@
     "libsodium-wrappers": "^0.7.13",
     "twilio": "^5.3.0",
     "zod": "^3.24.0",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/libsodium-wrappers": "^0.7.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "@types/ws": "^8.5.0"
   }
 }
