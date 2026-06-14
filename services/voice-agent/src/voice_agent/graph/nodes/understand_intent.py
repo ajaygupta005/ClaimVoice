@@ -22,12 +22,20 @@ _FORMULARY = re.compile(
     r"\b(drug|medication|medicine|prescription|formulary|tier|rx|lisinopril|humira|metformin|insulin)\b",
     re.IGNORECASE,
 )
+# Capability / help questions — matched before keyword scoring to avoid escalation
+_HELP = re.compile(
+    r"\b(what can you do|help me|how do you work|what do you know|tell me about yourself|"
+    r"what are you|who are you|what can i ask|what questions|can you help|"
+    r"what services|capabilities)\b",
+    re.IGNORECASE,
+)
 
 _INTENT_TO_TOOL: dict[str, str] = {
     "coverage": "check_coverage",
     "cost": "estimate_cost",
     "provider": "find_provider",
     "formulary": "check_formulary",
+    "help": "escalate_to_human",   # reuses escalation tool but compose_answer intercepts
     "escalate": "escalate_to_human",
 }
 
@@ -36,6 +44,8 @@ def understand_intent(state: AgentState) -> AgentState:
     text = state.get("question", "")
     if len(text.strip()) < 3:
         intent = "escalate"
+    elif _HELP.search(text):
+        intent = "help"
     else:
         scores = {
             "coverage": len(_COVERAGE.findall(text)),

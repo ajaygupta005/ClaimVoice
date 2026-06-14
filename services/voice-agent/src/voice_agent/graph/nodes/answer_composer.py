@@ -69,12 +69,22 @@ class MockComposer(AnswerComposer):
         question = inp.question
         result = inp.tool_result
 
-        if intent == "escalate":
+        if intent in ("escalate",):
             return ComposerOutput(
                 answer_text=_ESCALATION_TEXT,
                 needs_escalation=True,
                 confidence=1.0,
             )
+
+        if intent == "help":
+            text = (
+                "I can help you with your health insurance coverage questions. "
+                "You can ask me: whether a service or procedure is covered, "
+                "what your copay or deductible is, whether a medication is on your formulary, "
+                "or help you find an in-network provider near you. "
+                "Just ask your question and I'll look it up in your plan details."
+            )
+            return ComposerOutput(answer_text=text, confidence=1.0)
 
         if intent == "coverage":
             match = re.search(
@@ -200,6 +210,9 @@ class ClaudeComposer(AnswerComposer):
                 needs_escalation=True,
                 confidence=1.0,
             )
+
+        if inp.intent == "help":
+            return MockComposer().compose(inp)
 
         user_payload = json.dumps({
             "question": inp.question,
