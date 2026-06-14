@@ -96,12 +96,19 @@ def test_full_sequence(client: TestClient) -> None:
         audio_ack = ws.receive_json()
 
         ws.send_json({"type": "stop", "callSid": "CA006", "streamSid": "SM006"})
-        stop_ack = ws.receive_json()
+
+        # Stop may be preceded by a transcript.final — drain until we find the stop ack.
+        stop_ack = None
+        for _ in range(5):
+            msg = ws.receive_json()
+            if msg.get("ack") == "stop":
+                stop_ack = msg
+                break
 
     assert start_ack["ack"] == "start"
     assert audio_ack["ack"] == "audio"
     assert audio_ack["bytes"] == 64
-    assert stop_ack["ack"] == "stop"
+    assert stop_ack is not None and stop_ack["ack"] == "stop"
 
 
 # ── invalid / malformed events ────────────────────────────────────────────────

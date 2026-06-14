@@ -1,9 +1,10 @@
 """
 WebSocket endpoint: /api/v1/ws/telephony
 
-Receives bridge events from the telephony service (Component 23) and
-maintains per-connection session state. Placeholder for WS-6 STT/TTS
-pipeline — today it validates, logs, and acknowledges each event.
+Receives bridge events from the telephony service (Component 23),
+maintains per-connection session state, and pipes audio through the
+STT adapter (Component 25). Transcript events are sent back over the
+same WebSocket connection.
 
 Query parameters (set by the bridge):
   callSid   — Twilio call SID
@@ -13,7 +14,7 @@ Query parameters (set by the bridge):
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -28,6 +29,7 @@ from voice_agent.schemas.telephony_bridge import (
     StartEvent,
     StopEvent,
 )
+from voice_agent.streaming.stt_adapter import MockStreamingSTT, StreamingSTT
 
 router = APIRouter()
 
@@ -44,23 +46,28 @@ class SessionState:
     audio_bytes_received: int = 0
     audio_frames: int = 0
     stopped: bool = False
+    stt: Optional[StreamingSTT] = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+async def _send_json(ws: WebSocket, payload: str) -> None:
+    await ws.send_text(payload)
+
+
 async def _send_ack(ws: WebSocket, ack: AckResponse) -> None:
-    await ws.send_text(ack.model_dump_json(exclude_none=True))
+    await _send_json(ws, ack.model_dump_json(exclude_none=True))
 
 
 async def _send_error(ws: WebSocket, error: str, detail: str) -> None:
-    resp = ErrorResponse(error=error, detail=detail)
-    await ws.send_text(resp.model_dump_json())
+    await _send_json(ws, ErrorResponse(error=error, detail=detail).model_dump_json())
 
 
 # ── Event handlers ────────────────────────────────────────────────────────────
 
 async def _handle_start(ws: WebSocket, ev: StartEvent, session: SessionState) -> None:
     session.started = True
+    session.stt = MockStreamingSTT(call_sid=ev.callSid, stream_sid=ev.streamSid)
     logger.info(
         "bridge.session_started",
         call_sid=ev.callSid,
@@ -74,18 +81,48 @@ async def _handle_audio(ws: WebSocket, ev: AudioEvent, session: SessionState) ->
     if not session.started:
         await _send_error(ws, "unexpected_audio", "audio received before start event")
         return
+
     pcm = ev.decode_pcm()
     session.audio_bytes_received += len(pcm)
     session.audio_frames += 1
-    # TODO (WS-6): forward pcm bytes into the STT pipeline
+
+    # Send ack first so the bridge knows the frame was received
     await _send_ack(
         ws,
         AckResponse(ack="audio", callSid=ev.callSid, streamSid=ev.streamSid, bytes=len(pcm)),
     )
 
+    # Feed audio through the STT adapter; emit any partial transcripts
+    if session.stt is not None:
+        partials = session.stt.push_audio(pcm)
+        for partial in partials:
+            logger.debug(
+                "stt.partial",
+                call_sid=ev.callSid,
+                stream_sid=ev.streamSid,
+                text=partial.text,
+                confidence=partial.confidence,
+            )
+            await _send_json(ws, partial.model_dump_json())
+
 
 async def _handle_stop(ws: WebSocket, ev: StopEvent, session: SessionState) -> None:
     session.stopped = True
+
+    # Flush the STT adapter to get the final transcript before closing
+    if session.stt is not None:
+        final = session.stt.flush()
+        if final is not None:
+            logger.info(
+                "stt.final",
+                call_sid=ev.callSid,
+                stream_sid=ev.streamSid,
+                text=final.text,
+                confidence=final.confidence,
+                duration_ms=final.duration_ms,
+            )
+            await _send_json(ws, final.model_dump_json())
+
     logger.info(
         "bridge.session_stopped",
         call_sid=ev.callSid,
@@ -115,21 +152,18 @@ async def telephony_ws(
         while True:
             raw = await websocket.receive_text()
 
-            # Parse the raw JSON payload
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError as exc:
                 await _send_error(websocket, "invalid_json", str(exc))
                 continue
 
-            # Validate against the discriminated union
             try:
                 event: BridgeEvent = _bridge_event_adapter.validate_python(data)
             except ValidationError as exc:
                 await _send_error(websocket, "invalid_event", exc.errors()[0]["msg"])
                 continue
 
-            # Bootstrap session from the event if query params were absent
             if session is None:
                 session = SessionState(call_sid=event.callSid, stream_sid=event.streamSid)
 

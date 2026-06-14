@@ -27,3 +27,4 @@ mlruns/
 # startup script runtime artifacts
 .logs/
 .claimvoice.pids
+services/voice-agent/src/voice_agent.egg-info/
