@@ -16,3 +16,15 @@ dependencies = [
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
