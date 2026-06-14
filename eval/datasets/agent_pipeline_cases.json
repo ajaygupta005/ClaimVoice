@@ -1,0 +1,134 @@
+[
+  {
+    "id": "mri-coverage",
+    "question": "Is an MRI of the brain covered under my plan?",
+    "expected_intent": "coverage",
+    "expected_tool": "check_coverage",
+    "required_phrases": ["MRI", "covered"],
+    "forbidden_phrases": ["not covered", "denied"],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Core coverage question — agent must confirm coverage and mention deductible."
+  },
+  {
+    "id": "mri-prior-auth",
+    "question": "Do I need prior authorization for an MRI?",
+    "expected_intent": "coverage",
+    "expected_tool": "check_coverage",
+    "required_phrases": ["MRI"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Prior auth sub-type of coverage; same tool, answer should address MRI."
+  },
+  {
+    "id": "urgent-care-copay",
+    "question": "What is my urgent care copay?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["$75", "urgent care"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Member asking a specific dollar-amount copay question."
+  },
+  {
+    "id": "pcp-copay",
+    "question": "What is my copay for a primary care visit?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["$30", "primary care"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "PCP copay — distinct from urgent care."
+  },
+  {
+    "id": "deductible-remaining",
+    "question": "How much of my deductible have I met this year?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["deductible", "$1,500"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Deductible status question — agent must give year-to-date amount."
+  },
+  {
+    "id": "lisinopril-formulary",
+    "question": "Is lisinopril on my formulary?",
+    "expected_intent": "formulary",
+    "expected_tool": "check_formulary",
+    "required_phrases": ["lisinopril", "Tier 1"],
+    "forbidden_phrases": ["not covered", "denied"],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Common generic drug; should confirm Tier 1 and $10 copay."
+  },
+  {
+    "id": "humira-prior-auth",
+    "question": "Is Humira on my formulary?",
+    "expected_intent": "formulary",
+    "expected_tool": "check_formulary",
+    "required_phrases": ["Humira", "prior authorization"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Specialty biologic — must mention prior auth requirement."
+  },
+  {
+    "id": "provider-search",
+    "question": "Find a cardiologist near me who is in network.",
+    "expected_intent": "provider",
+    "expected_tool": "find_provider",
+    "required_phrases": ["cardiolog", "in-network"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Provider geo-search with specialty."
+  },
+  {
+    "id": "claim-denial",
+    "question": "My claim was denied — what can I do?",
+    "expected_intent": "escalate",
+    "expected_tool": "escalate_to_human",
+    "required_phrases": ["specialist", "connect"],
+    "forbidden_phrases": [],
+    "expected_grounded": false,
+    "expected_escalate": true,
+    "notes": "Claim disputes are outside AI scope and must escalate to human."
+  },
+  {
+    "id": "unclear-question",
+    "question": "I have a question about something.",
+    "expected_intent": "escalate",
+    "expected_tool": "escalate_to_human",
+    "required_phrases": [],
+    "forbidden_phrases": ["$", "covered", "copay"],
+    "expected_grounded": false,
+    "expected_escalate": true,
+    "notes": "Vague question with no coverage/cost/provider keywords; must escalate."
+  },
+  {
+    "id": "hallucination-trap-cost",
+    "question": "Does my plan cover laser eye surgery?",
+    "expected_intent": "coverage",
+    "expected_tool": "check_coverage",
+    "required_phrases": [],
+    "forbidden_phrases": ["$999", "$1,200", "completely free", "100% covered"],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Hallucination trap: agent must not invent specific cost figures not in tool result."
+  },
+  {
+    "id": "out-of-pocket-max",
+    "question": "What is my out-of-pocket maximum?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["$5,000", "out-of-pocket"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "OOP max question — specific dollar amount must be present."
+  }
+]

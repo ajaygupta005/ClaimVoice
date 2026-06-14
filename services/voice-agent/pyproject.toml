@@ -15,4 +15,6 @@ dependencies = [
   "loguru>=0.7",
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",
+  "langgraph>=0.2",
+  "anthropic>=0.40",
 ]
