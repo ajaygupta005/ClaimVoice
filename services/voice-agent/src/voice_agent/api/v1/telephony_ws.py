@@ -29,6 +29,7 @@ from voice_agent.schemas.telephony_bridge import (
     StartEvent,
     StopEvent,
 )
+from voice_agent.services.answer_orchestrator import orchestrate
 from voice_agent.streaming.stt_adapter import MockStreamingSTT, StreamingSTT
 
 router = APIRouter()
@@ -122,6 +123,18 @@ async def _handle_stop(ws: WebSocket, ev: StopEvent, session: SessionState) -> N
                 duration_ms=final.duration_ms,
             )
             await _send_json(ws, final.model_dump_json())
+
+            # Orchestrate a grounded answer from the transcript
+            answer = orchestrate(final)
+            logger.info(
+                "answer.final",
+                call_sid=ev.callSid,
+                stream_sid=ev.streamSid,
+                intent=answer.intent,
+                grounded=answer.grounded,
+                tools=[t.tool for t in answer.tool_trace],
+            )
+            await _send_json(ws, answer.model_dump_json())
 
     logger.info(
         "bridge.session_stopped",
