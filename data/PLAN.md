@@ -175,7 +175,7 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C8 · SBC PDF download + synthetic card generation
 **Phase 1 · Day 4 · `feat`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-synthetic-data`
 
 **Files to create**:
@@ -288,7 +288,7 @@ C10 (dvc pipeline)  ──── depends on all above
 | C1 — scaffold | Phase 1 | Day 1 | ✅ |
 | C2 — NPI ingest | Phase 1 | Day 2 | ✅ |
 | C3 — Plan PUF | Phase 1 | Day 3–4 | ✅ |
-| C8 — SBC + cards | Phase 1 | Day 4 | ⬜ |
+| C8 — SBC + cards | Phase 1 | Day 4 | ✅ |
 | C9 — stubs + seeds | Phase 1 | Day 5 | ⬜ |
 | C4 — formulary | Phase 2 | Day 6 | ✅ |
 | C5 — MRF parser | Phase 2 | Day 7–8 | ⬜ |
