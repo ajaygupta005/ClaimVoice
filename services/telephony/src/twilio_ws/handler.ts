@@ -1,6 +1,7 @@
 // WebSocket handler for Twilio Media Streams. Bridges audio to the voice agent.
 
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { WebSocket as WS } from 'ws'
 import type { TwilioFrame, StreamState } from './types.js'
 import { ulawToPcm16, pcm16ToUlaw, resamplePcm16 } from '../audio_codec/index.js'
 import { openBridge, type VoiceAgentBridge } from './voice_agent_bridge.js'
@@ -13,6 +14,28 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
   app.get('/media-stream', { websocket: true }, (connection, req: FastifyRequest) => {
     let state: StreamState | null = null
     let bridge: VoiceAgentBridge | null = null
+
+    // Called by the bridge whenever the voice-agent sends back a tts.audio event.
+    // Converts PCM16 24 kHz → µ-law 8 kHz and writes a Twilio media frame to the
+    // caller's WebSocket.
+    function onReturnAudio(pcm24k: Buffer, isFinal: boolean): void {
+      if (!state) return
+      try {
+        const frame = pcm16ToTwilioFrame(state.streamSid, pcm24k)
+        const frameBytes = Buffer.byteLength(frame)
+        state.bytesOut += frameBytes
+        connection.socket.send(frame)
+        req.log.debug({
+          event: 'twilio_ws.return_audio',
+          streamSid: state.streamSid,
+          callSid: state.callSid,
+          bytes: frameBytes,
+          isFinal,
+        })
+      } catch (err) {
+        req.log.warn({ event: 'twilio_ws.return_audio_error', streamSid: state?.streamSid, err })
+      }
+    }
 
     connection.socket.on('message', (raw: Buffer) => {
       try {
@@ -28,7 +51,7 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
           }
           activeStreams.set(state.streamSid, state)
 
-          bridge = openBridge(VOICE_AGENT_WS_URL, state.callSid, state.streamSid, req.log)
+          bridge = openBridge(VOICE_AGENT_WS_URL, state.callSid, state.streamSid, req.log, onReturnAudio)
           bridge.sendStart({
             callSid: state.callSid,
             streamSid: state.streamSid,
