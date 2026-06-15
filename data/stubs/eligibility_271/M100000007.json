@@ -1,0 +1,16 @@
+{
+  "member_id": "M100000007",
+  "eligibility_status": "active",
+  "plan_name": "BCBS Gold BlueValue",
+  "deductible_individual_cents": 150000,
+  "deductible_ytd_cents": 0,
+  "oop_max_individual_cents": 400000,
+  "oop_ytd_cents": 0,
+  "effective_date": "2026-01-01",
+  "termination_date": null,
+  "copays": {
+    "primary_care_cents": 2500,
+    "specialist_cents": 5000,
+    "emergency_cents": 25000
+  }
+}

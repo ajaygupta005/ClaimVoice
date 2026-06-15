@@ -1,0 +1,16 @@
+{
+  "member_id": "M100000009",
+  "eligibility_status": "active",
+  "plan_name": "Aetna Bronze 6850",
+  "deductible_individual_cents": 685000,
+  "deductible_ytd_cents": 685000,
+  "oop_max_individual_cents": 870000,
+  "oop_ytd_cents": 565500,
+  "effective_date": "2026-01-01",
+  "termination_date": null,
+  "copays": {
+    "primary_care_cents": 7500,
+    "specialist_cents": 15000,
+    "emergency_cents": 45000
+  }
+}
