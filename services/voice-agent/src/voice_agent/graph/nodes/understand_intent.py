@@ -7,7 +7,9 @@ import re
 from voice_agent.graph.agent_state import AgentState
 
 _COVERAGE = re.compile(
-    r"\b(covered|coverage|cover|does my plan|prior auth|authorization)\b",
+    r"\b(covered|coverage|cover|does my plan|prior auth|authorization|"
+    r"x-ray|x ray|xray|imaging|dental|vision|scan|ct scan|mammogram|ultrasound|"
+    r"annual physical|preventive|wellness visit|therapy|mental health|telehealth|colonoscopy)\b",
     re.IGNORECASE,
 )
 _COST = re.compile(
@@ -15,7 +17,8 @@ _COST = re.compile(
     re.IGNORECASE,
 )
 _PROVIDER = re.compile(
-    r"\b(doctor|physician|specialist|provider|cardiologist|dermatologist|find|near|network|clinic|hospital|facility)\b",
+    r"\b(doctor|physician|specialist|provider|cardiologist|dermatologist|find|near|network|clinic|hospital|facility|"
+    r"primary care|PCP|imaging center|radiology|nearest|where can i get|where can i find)\b",
     re.IGNORECASE,
 )
 _FORMULARY = re.compile(
@@ -26,7 +29,15 @@ _FORMULARY = re.compile(
 _HELP = re.compile(
     r"\b(what can you do|help me|how do you work|what do you know|tell me about yourself|"
     r"what are you|who are you|what can i ask|what questions|can you help|"
-    r"what services|capabilities)\b",
+    r"what services|capabilities|what do you help with|what topics|guide me|introduction)\b",
+    re.IGNORECASE,
+)
+
+# Dual-signal patterns for tie-breaking
+_COVERAGE_SIGNAL = re.compile(r"\b(covered|coverage)\b", re.IGNORECASE)
+_PROVIDER_SIGNAL = re.compile(
+    r"\b(doctor|physician|specialist|provider|cardiologist|dermatologist|find|near|network|clinic|hospital|facility|"
+    r"primary care|PCP|imaging center|radiology|nearest|where can i get|where can i find)\b",
     re.IGNORECASE,
 )
 
@@ -54,7 +65,22 @@ def understand_intent(state: AgentState) -> AgentState:
             "formulary": len(_FORMULARY.findall(text)),
         }
         best, best_score = max(scores.items(), key=lambda kv: kv[1])
-        intent = best if best_score > 0 else "escalate"
+
+        if best_score == 0:
+            intent = "escalate"
+        elif scores["coverage"] > 0 and scores["provider"] > 0 and scores["coverage"] == scores["provider"]:
+            # Tie-breaking: prefer coverage if "covered" or "coverage" appears, else provider
+            if _COVERAGE_SIGNAL.search(text):
+                intent = "coverage"
+            else:
+                # Dual-signal short-circuit: queries containing imaging/scan terms with "where can i get"
+                # or similar provider-locator phrases route to coverage when they carry imaging keywords
+                intent = "coverage" if re.search(
+                    r"\b(x-ray|x ray|xray|imaging|scan|ct scan|mammogram|ultrasound)\b",
+                    text, re.IGNORECASE,
+                ) else "provider"
+        else:
+            intent = best
 
     return {
         **state,

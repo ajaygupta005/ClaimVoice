@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from .api.v1 import router as v1_router
+from .api.v1 import tts_synthesize
 from .lib.logger import logger
 
 app = FastAPI(title="voice-agent")
