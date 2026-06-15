@@ -9,9 +9,9 @@ app.include_router(v1_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup() -> None:
     logger.info("document-ai starting")
-    # Eagerly load the card OCR model so the first request is not slow.
-    # If the checkpoint is absent we log a warning and continue — the endpoint
-    # will return 503 until a checkpoint is deployed.
+    # Eagerly load all inference runners so the first request is not slow.
+    # Missing checkpoints log a warning rather than crashing the service;
+    # the relevant endpoint returns 503 until the checkpoint is deployed.
     try:
         from .inference.card_ocr_runner import CardOCRRunner
         app.state.card_ocr_runner = CardOCRRunner()
@@ -19,6 +19,14 @@ async def startup() -> None:
     except FileNotFoundError as exc:
         logger.warning(f"card_ocr_runner not loaded: {exc}")
         app.state.card_ocr_runner = None
+
+    try:
+        from .inference.payor_classifier_runner import PayorClassifierRunner
+        app.state.payor_classifier_runner = PayorClassifierRunner()
+        logger.info("payor_classifier_runner loaded successfully")
+    except FileNotFoundError as exc:
+        logger.warning(f"payor_classifier_runner not loaded: {exc}")
+        app.state.payor_classifier_runner = None
 
 
 @app.get("/health")

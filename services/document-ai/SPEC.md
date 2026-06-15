@@ -30,6 +30,33 @@ It transforms member insurance cards and SBC documents into structured fields th
 - `services/document-ai/RESEARCH.md`
 - Local startup story in `Justfile` / root docs if needed
 
+#### Data paths and config locations
+
+All paths are relative to `services/document-ai/` unless otherwise noted.
+
+**Training configs** (Hydra YAML, consumed by `uv run python -m ml/models/*/train.py`):
+
+| Config file | Model |
+|---|---|
+| `ml/configs/train_card_ocr.yaml` | LayoutLMv3 card OCR |
+| `ml/configs/train_payor_classifier.yaml` | ResNet-50 payor classifier |
+| `ml/configs/train_sbc.yaml` | LayoutLMv3 SBC parser |
+
+**Model artifact directories** (DVC-tracked; each `latest/` symlink points to the most recently promoted checkpoint):
+
+| Artifact path | Runner that reads it |
+|---|---|
+| `artifacts/card_ocr/latest/` | `src/document_ai/inference/card_ocr_runner.py` |
+| `artifacts/payor_classifier/latest/` | `src/document_ai/inference/payor_classifier_runner.py` |
+| `artifacts/sbc_parser/latest/` | `src/document_ai/inference/sbc_parser_runner.py` |
+
+Each `latest/` directory must contain at minimum:
+- `model.safetensors` — model weights
+- `config.json` — Hugging Face model config (for LayoutLMv3 runners)
+- tokenizer files (`tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`) for LayoutLMv3 runners
+
+The payor classifier `latest/` directory needs only `model.safetensors` (weights are loaded into a torchvision `resnet50` head via the `safetensors` library).
+
 ### D2: Card OCR
 - Training script stub for LayoutLMv3 (`ml/models/card_ocr_layoutlm/train.py`)
 - Config `ml/configs/train_card_ocr.yaml`
