@@ -104,9 +104,8 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C5 · MRF stream-parser (Transparency-in-Coverage Schema 2.0)
 **Phase 2 · Day 7–8 · `feat`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-mrf-parser`
-**Blocked by**: C3 (needs `plans` populated for `plan_id` resolution)
 
 **Files to create**:
 - `ingest/mrf_parser.py`
@@ -290,7 +289,7 @@ C10 (dvc pipeline)  ──── depends on all above
 | C8 — SBC + cards | Phase 1 | Day 4 | ✅ |
 | C9 — stubs + seeds | Phase 1 | Day 5 | ⬜ |
 | C4 — formulary | Phase 2 | Day 6 | ✅ |
-| C5 — MRF parser | Phase 2 | Day 7–8 | ⬜ |
+| C5 — MRF parser | Phase 2 | Day 7–8 | ✅ |
 | C6 — Care Compare | Phase 2 | Day 9 | ✅ |
 | C7 — ICD/HCPCS | Phase 2 | Day 10 | ✅ |
 | C10 — DVC + CI | Phase 2 | Day 11 | ⬜ |
