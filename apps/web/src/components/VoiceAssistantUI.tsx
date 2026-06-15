@@ -2,16 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Mic, MicOff, Send, CheckCircle2, Loader2, Circle, ShieldCheck, Bot, User, ChevronDown,
+  Mic, MicOff, Send, CheckCircle2, Loader2, Circle, ShieldCheck, Bot, User, ChevronDown, RotateCcw,
 } from 'lucide-react'
-import { mockVoiceTranscript, type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
+import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
 import { sendVoiceAgentQuestion } from '@/lib/voice-agent-client'
-
-// ── Web Speech API type shim (not in all TS dom libs) ────────────────────────
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type AnySpeechRecognition = any
+import { VoiceTurnController } from '@/lib/voice-turn-controller'
+import { synthesizeSpeech } from '@/lib/tts-client'
 
 // ── Waveform ──────────────────────────────────────────────────────────────────
 
@@ -37,16 +34,18 @@ function Waveform({ active }: { active: boolean }) {
 
 function StatusPill({ status }: { status: VoiceStatus }) {
   const map: Record<VoiceStatus, { label: string; cls: string; dot: string }> = {
-    idle:       { label: 'Ready',      cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',    dot: 'bg-slate-400' },
-    listening:  { label: 'Listening',  cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-500 animate-pulse' },
-    processing: { label: 'Processing', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', dot: 'bg-amber-500 animate-pulse' },
-    speaking:   { label: 'Speaking',   cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300', dot: 'bg-green-500 animate-pulse' },
+    ready:            { label: 'Ready',       cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',    dot: 'bg-slate-400' },
+    listening:        { label: 'Listening',   cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-500 animate-pulse' },
+    finalizing_stt:   { label: 'Finalizing…', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-400' },
+    thinking:         { label: 'Thinking',    cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', dot: 'bg-amber-500 animate-pulse' },
+    speaking:         { label: 'Speaking',    cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300', dot: 'bg-green-500 animate-pulse' },
+    error_recoverable:{ label: 'Error',       cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',         dot: 'bg-red-500' },
   }
   const { label, cls, dot } = map[status]
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {status === 'processing' && <Loader2 size={10} className="animate-spin -ml-0.5" />}
+      {status === 'thinking' && <Loader2 size={10} className="animate-spin -ml-0.5" />}
       {label}
     </span>
   )
@@ -115,21 +114,20 @@ function getPipelineSteps(
   status: VoiceStatus,
   completed?: CompletedPipeDetails,
 ): PipeStep[] {
-  if (status === 'listening') return [
+  if (status === 'listening' || status === 'finalizing_stt') return [
     { title: 'Identify',   detail: 'Listening…',   state: 'running'   },
     { title: 'Understand', detail: 'Waiting',       state: 'pending'   },
     { title: 'Check',      detail: 'Waiting',       state: 'pending'   },
     { title: 'Guard',      detail: 'Waiting',       state: 'pending'   },
     { title: 'Respond',    detail: 'Waiting',       state: 'pending'   },
   ]
-  if (status === 'processing') return [
+  if (status === 'thinking') return [
     { title: 'Identify',   detail: 'Member verified', state: 'completed' },
     { title: 'Understand', detail: 'Extracting…',     state: 'running'   },
     { title: 'Check',      detail: 'Querying…',       state: 'running'   },
     { title: 'Guard',      detail: 'Waiting',         state: 'pending'   },
     { title: 'Respond',    detail: 'Waiting',         state: 'pending'   },
   ]
-  // idle or speaking — show completed steps with real details if available
   const d = completed ?? {
     identify:   'Member verified',
     understand: 'Intent extracted',
@@ -177,18 +175,16 @@ const VOICE_QUESTIONS = [
   'What is my urgent care copay?',
   'Is lisinopril on my formulary?',
   'Find a cardiologist near me who is in network',
-  'Do I need prior authorization for an MRI?',
-  'My claim was denied — can you help?',
+  'Where can I get an x-ray?',
+  'What can you do?',
 ]
-let voiceQIdx = 0
-function nextVoiceQuestion() { return VOICE_QUESTIONS[voiceQIdx++ % VOICE_QUESTIONS.length] }
 
 const DEFAULT_BACKENDS: BackendStatus[] = [
-  { label: 'Voice Agent API',     detail: '', status: 'demo' },
-  { label: 'STT',                 detail: '', status: 'demo' },
-  { label: 'TTS',                 detail: '', status: 'demo' },
-  { label: 'Hallucination guard', detail: '', status: 'demo' },
-  { label: 'Claude',              detail: 'mock', status: 'demo' },
+  { label: 'Voice Agent API', detail: '',          status: 'demo' },
+  { label: 'STT: Browser',    detail: '',          status: 'demo' },
+  { label: 'Voice',           detail: 'inactive',  status: 'demo' },
+  { label: 'Guard',           detail: '',          status: 'demo' },
+  { label: 'Claude answer',   detail: 'mock',      status: 'demo' },
 ]
 
 // ── Examples drawer ───────────────────────────────────────────────────────────
@@ -233,144 +229,189 @@ function ExamplesDrawer({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function VoiceAssistantUI() {
-  const [status,       setStatus]      = useState<VoiceStatus>('idle')
-  const [turns,        setTurns]       = useState<VoiceTurn[]>(mockVoiceTranscript)
+  const [status,       setStatus]      = useState<VoiceStatus>('ready')
+  const [turns,        setTurns]       = useState<VoiceTurn[]>([])
   const [input,        setInput]       = useState('')
   const [backends,     setBackends]    = useState<BackendStatus[]>(DEFAULT_BACKENDS)
   const [guardPassed,  setGuardPassed] = useState<boolean | null>(null)
   const [pipeDetails,  setPipeDetails] = useState<CompletedPipeDetails | undefined>(undefined)
   const [usedFallback, setUsedFallback] = useState(false)
-  // Web Speech API state
+  const [composerMode, setComposerMode] = useState<string>('mock')
   const [interimText,  setInterimText] = useState('')
-  const recognitionRef = useRef<AnySpeechRecognition>(null)
-  const finalTextRef   = useRef('')          // accumulates final segments during a session
-  const transcriptRef  = useRef<HTMLDivElement>(null)
+
+  const controllerRef = useRef<VoiceTurnController | null>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (transcriptRef.current)
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
   }, [turns])
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { controllerRef.current?.cleanup('unmount') }
+  }, [])
+
+  function newController(): VoiceTurnController {
+    controllerRef.current?.cleanup('new_turn')
+    // ctrl reference captured so the error handler can call cleanup on itself
+    let ctrl: VoiceTurnController
+    ctrl = new VoiceTurnController(
+      (s) => setStatus(s as VoiceStatus),
+      (t) => setInterimText(t),
+      (text) => { void runPipeline(text, 'voice') },
+      (msg) => {
+        console.warn('[VoiceUI] STT error:', msg)
+        setInterimText('')
+        // cleanup transitions to ready via onStateChange
+        ctrl.cleanup(`stt_error: ${msg}`)
+      },
+    )
+    controllerRef.current = ctrl
+    return ctrl
+  }
+
   async function runPipeline(question: string, source: 'typed' | 'voice' | 'demo' = 'typed') {
-    setStatus('processing')
+    const ctrl = controllerRef.current ?? newController()
+    // Snapshot turnId — any state update from an older turn is ignored
+    const myTurnId = ctrl.turnId
+    const signal   = ctrl.startBackend()
+
     setInterimText('')
     setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: question, timestampMs: Date.now() }])
 
-    // Try real backend first
-    const backendResult = await sendVoiceAgentQuestion(question, source)
+    let answerText = ''
 
-    if (backendResult) {
-      setUsedFallback(false)
-      setStatus('speaking')
-      setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: backendResult.answer, timestampMs: Date.now() }])
-      setBackends(backendResult.backends)
-      setGuardPassed(backendResult.grounded)
-      setPipeDetails(backendResult.pipeDetails)
-      setTimeout(() => setStatus('idle'), 2500)
-    } else {
-      // Backend unavailable — fall back to local mock
-      setUsedFallback(true)
-      const mockResult = runMockPipeline(question)
-      setStatus('speaking')
-      setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: mockResult.answer, timestampMs: Date.now() }])
-      setBackends(mockResult.backends.map(b => b.label === 'Voice Agent API'
-        ? { ...b, detail: 'offline', status: 'offline' as LedStatus }
-        : b
+    // Guard: reject stale responses if a new turn started while we were awaiting
+    const isStale = () => controllerRef.current?.turnId !== myTurnId
+
+    try {
+      // Try real backend first
+      const backendResult = await sendVoiceAgentQuestion(question, source, signal)
+
+      if (isStale()) return  // new turn started; this response is discarded
+
+      if (backendResult) {
+        setUsedFallback(false)
+        answerText = backendResult.answer
+        setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: answerText, timestampMs: Date.now() }])
+        if (backendResult.composer_mode) setComposerMode(backendResult.composer_mode)
+        setGuardPassed(backendResult.grounded)
+        setPipeDetails(backendResult.pipeDetails)
+        // Relabel backends: rename Claude → Claude answer, STT → STT: Browser
+        const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
+        setBackends(backendResult.backends.map(b => {
+          if (b.label === 'Claude') return { ...b, label: 'Claude answer', status: claudeStatus as LedStatus }
+          if (b.label === 'STT')   return { ...b, label: 'STT: Browser' }
+          return b
+        }))
+      } else {
+        // Backend unavailable — local mock fallback
+        setUsedFallback(true)
+        const mockResult = runMockPipeline(question)
+        answerText = mockResult.answer
+        setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: answerText, timestampMs: Date.now() }])
+        setBackends(mockResult.backends.map(b => b.label === 'Voice Agent API'
+          ? { ...b, detail: 'offline', status: 'offline' as LedStatus }
+          : b
+        ))
+        setGuardPassed(mockResult.guard.passed)
+        setPipeDetails(undefined)
+      }
+    } catch (err: unknown) {
+      if (isStale()) return
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      const reason  = isAbort ? 'timeout' : 'fetch_error'
+      ctrl.backendFailed(reason)
+      setTurns(p => [...p, {
+        id: `err-${Date.now()}`, role: 'assistant',
+        text: "I'm having trouble reaching the server. Please try again.",
+        timestampMs: Date.now(),
+      }])
+      ctrl.cleanup(`backend_error: ${reason}`)
+      return
+    }
+
+    if (isStale()) return
+
+    ctrl.backendSuccess()
+
+    // ── TTS: try Google, fall back to browser ─────────────────────────────
+    const onTtsDone = () => {
+      if (!isStale()) ctrl.cleanup('tts_done')
+    }
+
+    const ttsData = await synthesizeSpeech({ text: answerText })
+    if (isStale()) return
+
+    if (ttsData?.audioBase64) {
+      setBackends(prev => prev.map(b =>
+        b.label === 'Voice'
+          ? { ...b, label: 'Voice: Google TTS', status: 'connected' as LedStatus, detail: ttsData.voiceName }
+          : b
       ))
-      setGuardPassed(mockResult.guard.passed)
-      setPipeDetails(undefined)
-      setTimeout(() => setStatus('idle'), Math.min(mockResult.tts.durationEstimateMs || 2200, 3000))
+      await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, onTtsDone)
+    } else {
+      setBackends(prev => prev.map(b =>
+        b.label === 'Voice'
+          ? { ...b, label: 'Voice: Browser', status: 'degraded' as LedStatus, detail: 'speechSynthesis fallback' }
+          : b
+      ))
+      ctrl.speakBrowser(answerText, onTtsDone)
     }
   }
 
-  const stopRecognition = useCallback(() => {
-    recognitionRef.current?.stop()
-    recognitionRef.current = null
-  }, [])
+  const handleMicClick = useCallback(() => {
+    if (status === 'thinking' || status === 'finalizing_stt') return
 
-  function startRecognition() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any
-    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition
-    if (!SR) {
-      // Browser doesn't support speech — fall back to the old demo-question approach
-      setStatus('listening')
+    if (status === 'speaking') {
+      // Interrupt TTS and start new turn
+      const ctrl = newController()
+      ctrl.startSTT()
       return
     }
 
-    finalTextRef.current = ''
-    setInterimText('')
-
-    const rec = new SR()
-    rec.continuous      = true
-    rec.interimResults  = true
-    rec.lang            = 'en-US'
-    recognitionRef.current = rec
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (event: any) => {
-      let interim = ''
-      let finals  = finalTextRef.current
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i]
-        if (result.isFinal) {
-          finals += result[0].transcript + ' '
-        } else {
-          interim += result[0].transcript
-        }
-      }
-
-      finalTextRef.current = finals
-      setInterimText((finals + interim).trim())
-    }
-
-    rec.onend = () => {
-      // Fire pipeline with whatever was recognized
-      const spoken = finalTextRef.current.trim()
-      recognitionRef.current = null
-      if (spoken) {
-        void runPipeline(spoken, 'voice')
-      } else {
-        setStatus('idle')
-        setInterimText('')
-      }
-    }
-
-    rec.onerror = () => {
-      recognitionRef.current = null
-      setStatus('idle')
-      setInterimText('')
-    }
-
-    rec.start()
-    setStatus('listening')
-  }
-
-  function handleMicClick() {
-    if (status === 'processing' || status === 'speaking') return
     if (status === 'listening') {
-      if (recognitionRef.current) {
-        // Real SpeechRecognition — stopping triggers onend → runPipeline
-        stopRecognition()
-      } else {
-        // No SpeechRecognition — use demo question fallback
-        void runPipeline(nextVoiceQuestion(), 'voice')
-      }
+      controllerRef.current?.stopSTT()
       return
     }
-    startRecognition()
+
+    // ready or error_recoverable → start new turn
+    const ctrl = newController()
+    ctrl.startSTT()
+    // If browser SR unavailable, ctrl is in listening state for demo fallback
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleReset() {
+    setInterimText('')
+    // cleanup() calls transition('ready') → onStateChange → setStatus('ready')
+    controllerRef.current?.cleanup('user_reset')
+    // If controller was null, set status manually
+    controllerRef.current = null
+    setStatus('ready')
   }
 
   function handleSend() {
     const text = input.trim()
-    if (!text || status !== 'idle') return
+    if (!text || status === 'thinking' || status === 'finalizing_stt') return
     setInput('')
+    // newController() calls cleanup() on any current controller (stops TTS/STT)
+    newController()
     void runPipeline(text, 'typed')
   }
 
+  const isInputBusy = status === 'thinking' || status === 'finalizing_stt'
   const latestAssistant = [...turns].reverse().find(t => t.role === 'assistant')
   const pipelineSteps   = getPipelineSteps(status, pipeDetails)
+
+  const micLabel = status === 'listening' ? 'Stop recording' : 'Push to talk'
+  const micStatusText =
+    status === 'listening'         ? 'Listening — tap to stop'          :
+    status === 'finalizing_stt'    ? 'Finalizing speech…'               :
+    status === 'thinking'          ? 'Checking plan…'                   :
+    status === 'speaking'          ? 'Speaking answer — tap to stop'    :
+    status === 'error_recoverable' ? 'Error — tap to retry'             :
+                                     'Tap mic to speak'
 
   return (
     <div className="flex gap-3 items-start">
@@ -389,7 +430,17 @@ export default function VoiceAssistantUI() {
               )}
             </p>
           </div>
-          <StatusPill status={status} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReset}
+              title="Reset session"
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Reset voice session"
+            >
+              <RotateCcw size={13} />
+            </button>
+            <StatusPill status={status} />
+          </div>
         </div>
 
         {/* 2. Latest answer */}
@@ -432,40 +483,48 @@ export default function VoiceAssistantUI() {
           </div>
         </div>
 
-        {/* 4. Agent Talk + Transcript — equal-height side by side */}
+        {/* 4. Agent Talk + Transcript */}
         <div className="grid grid-cols-2 gap-3 h-[calc(100vh-260px)] min-h-[480px]">
 
           {/* Agent Talk */}
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col min-h-0">
-            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 shrink-0">
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-center justify-between">
               <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Agent Talk</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                composerMode === 'claude'
+                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+              }`}>
+                {composerMode === 'claude' ? 'Claude answer' : 'Mock answer'}
+              </span>
             </div>
 
             {/* Mic + waveform row */}
             <div className="px-4 py-4 flex items-center gap-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
               <button
                 onClick={handleMicClick}
-                disabled={status === 'processing' || status === 'speaking'}
-                aria-label={status === 'listening' ? 'Stop recording' : 'Push to talk'}
+                disabled={status === 'thinking' || status === 'finalizing_stt'}
+                aria-label={micLabel}
                 className={`shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                  status === 'listening'
+                  status === 'listening' || status === 'finalizing_stt'
                     ? 'bg-red-500 hover:bg-red-600 scale-105 shadow-red-200 dark:shadow-red-900/50'
-                    : status === 'processing' || status === 'speaking'
+                    : status === 'thinking'
                     ? 'bg-slate-200 dark:bg-slate-700 cursor-not-allowed opacity-60'
+                    : status === 'speaking'
+                    ? 'bg-amber-500 hover:bg-amber-600 active:scale-95 shadow-amber-200 dark:shadow-amber-900/50'
+                    : status === 'error_recoverable'
+                    ? 'bg-red-400 hover:bg-red-500 active:scale-95'
                     : 'bg-blue-500 hover:bg-blue-600 active:scale-95 shadow-blue-200 dark:shadow-blue-900/50'
                 }`}
               >
-                {status === 'listening'
+                {status === 'listening' || status === 'finalizing_stt'
                   ? <MicOff size={22} className="text-white" />
                   : <Mic    size={22} className="text-white" />}
               </button>
               <div className="flex flex-col gap-1.5 min-w-0 flex-1">
                 <Waveform active={status === 'listening'} />
                 <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
-                  {status === 'listening'  ? 'Listening — tap to stop'   :
-                   status === 'processing' ? 'Processing your question…' :
-                   status === 'speaking'   ? 'Agent is speaking…'        :
-                                             'Tap mic to speak'}
+                  {micStatusText}
                 </span>
               </div>
             </div>
@@ -474,7 +533,7 @@ export default function VoiceAssistantUI() {
             <div className={`px-4 py-2 min-h-[52px] shrink-0 border-b border-slate-100 dark:border-slate-800 transition-all ${
               status === 'listening' ? 'bg-blue-50 dark:bg-blue-900/10' : ''
             }`}>
-              {status === 'listening' ? (
+              {status === 'listening' || status === 'finalizing_stt' ? (
                 interimText ? (
                   <p className="text-xs text-blue-700 dark:text-blue-300 leading-snug italic">
                     &ldquo;{interimText}&rdquo;
@@ -492,8 +551,14 @@ export default function VoiceAssistantUI() {
             {/* Examples collapsible drawer */}
             <div className="pt-2 flex-1 overflow-y-auto min-h-0">
               <ExamplesDrawer
-                onPick={q => { if (status === 'idle') void runPipeline(q, 'demo') }}
-                disabled={status !== 'idle'}
+                onPick={q => {
+                  if (status === 'ready' || status === 'error_recoverable') {
+                    const ctrl = newController()
+                    controllerRef.current = ctrl
+                    void runPipeline(q, 'demo')
+                  }
+                }}
+                disabled={isInputBusy}
               />
             </div>
 
@@ -505,12 +570,12 @@ export default function VoiceAssistantUI() {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSend()}
                 placeholder="Or type a question…"
-                disabled={status !== 'idle'}
+                disabled={isInputBusy}
                 className="flex-1 px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               />
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || status !== 'idle'}
+                disabled={!input.trim() || isInputBusy}
                 className="px-2.5 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
                 aria-label="Send"
               >
@@ -531,9 +596,15 @@ export default function VoiceAssistantUI() {
               ref={transcriptRef}
               className="flex-1 p-3 space-y-2.5 overflow-y-auto min-h-0"
             >
+              {turns.length === 0 && status === 'ready' && (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+                  <p className="text-xs text-slate-400 dark:text-slate-500">No conversation yet</p>
+                  <p className="text-[10px] text-slate-300 dark:text-slate-600">Ask a question using the mic or type below</p>
+                </div>
+              )}
               {turns.map(turn => <Bubble key={turn.id} turn={turn} />)}
-              {/* Live interim bubble while listening */}
-              {status === 'listening' && interimText && (
+              {/* Live interim bubble */}
+              {(status === 'listening' || status === 'finalizing_stt') && interimText && (
                 <div className="flex items-end gap-1.5 flex-row-reverse opacity-60">
                   <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/40">
                     <User size={11} className="text-blue-600 dark:text-blue-400" />

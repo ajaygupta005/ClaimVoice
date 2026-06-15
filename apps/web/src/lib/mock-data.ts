@@ -116,7 +116,13 @@ export const mockToolStages: ToolCall[] = [
   { stage: 'fact_check',      label: 'Hallucination guard', detail: 'Answer grounded in plan data · no flags',     status: 'completed' },
 ]
 
-export type VoiceStatus = 'idle' | 'listening' | 'processing' | 'speaking'
+export type VoiceStatus =
+  | 'ready'
+  | 'listening'
+  | 'finalizing_stt'
+  | 'thinking'
+  | 'speaking'
+  | 'error_recoverable'
 
 // ── Provider search (Component 20) ───────────────────────────────────────────
 

@@ -101,13 +101,14 @@ function pipeDetails(res: AgentRespondResponse) {
 export async function sendVoiceAgentQuestion(
   question: string,
   source: 'typed' | 'voice' | 'demo' = 'typed',
+  signal?: AbortSignal,
 ): Promise<BackendPipelineResult | null> {
   try {
     const res = await fetch('/api/voice-agent/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, source }),
-      signal: AbortSignal.timeout(12_000),
+      signal: signal ?? AbortSignal.timeout(12_000),
     })
 
     if (!res.ok) {
@@ -131,6 +132,7 @@ export async function sendVoiceAgentQuestion(
       pipeDetails:   pipeDetails(data),
     }
   } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw err
     console.warn('[voice-agent-client] fetch failed:', err)
     return null
   }
