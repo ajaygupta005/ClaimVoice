@@ -207,9 +207,8 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C9 · X12 271 stubs + seed test members
 **Phase 1 · Day 5 · `chore`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-stubs-and-seeds`
-**Blocked by**: C3 (needs plan IDs to exist)
 
 **Files to create**:
 - `stubs/eligibility_271/M<id>.json` × 30 files
@@ -233,7 +232,7 @@ python data/ingest/npi_ingest.py npi.geo_filter.states=[NY]  # NY only override
 
 ### C10 · DVC pipeline + CI data-quality gate
 **Phase 2 · Day 11 · `chore`**
-**Status**: ⬜ Not started
+**Status**: ✅ Done
 **Branch**: `feat/ws1-dvc-pipeline`
 
 **Files to create**:
@@ -287,12 +286,12 @@ C10 (dvc pipeline)  ──── depends on all above
 | C2 — NPI ingest | Phase 1 | Day 2 | ✅ |
 | C3 — Plan PUF | Phase 1 | Day 3–4 | ✅ |
 | C8 — SBC + cards | Phase 1 | Day 4 | ✅ |
-| C9 — stubs + seeds | Phase 1 | Day 5 | ⬜ |
+| C9 — stubs + seeds | Phase 1 | Day 5 | ✅ |
 | C4 — formulary | Phase 2 | Day 6 | ✅ |
 | C5 — MRF parser | Phase 2 | Day 7–8 | ✅ |
 | C6 — Care Compare | Phase 2 | Day 9 | ✅ |
 | C7 — ICD/HCPCS | Phase 2 | Day 10 | ✅ |
-| C10 — DVC + CI | Phase 2 | Day 11 | ⬜ |
+| C10 — DVC + CI | Phase 2 | Day 11 | ✅ |
 
 ---
 
@@ -336,5 +335,5 @@ python data/ingest/synthetic_cards.py
 | Q1 | Confirm exact NPPES V2 CSV column headers for taxonomy fields — current mapping uses switch-field | WS-1 | High |
 | Q2 | Which Aetna or BCBS NYC MRF URL to use for the demo subset? | WS-1 | High |
 | Q3 | Exact CMS PUF 2026 download URL for `plan_puf_ingest.yaml` (CMS page lists several ZIP variants) | WS-1 | Medium |
-| Q4 | Does the Flux-based card generator require GPU? If so, document Modal/RunPod usage or swap to pure Pillow | WS-1 / WS-3 | Medium |
+| Q4 | ~~Flux-based card generator~~ — **resolved**: pure Pillow implementation (no GPU) | WS-1 / WS-3 | Closed |
 | Q5 | Redis available before `care_compare_sync.py` runs? (depends on `just up` having been called) | WS-8 | Low |

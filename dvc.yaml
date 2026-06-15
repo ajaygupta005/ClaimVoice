@@ -1,30 +1,114 @@
 stages:
+  # ── Phase 1: independent downloads ──────────────────────────────────────
   ingest_npi:
+    desc: "Download NPPES V2 monthly ZIP and load NY-metro providers into PostGIS"
     cmd: python data/ingest/npi_ingest.py
     deps:
       - data/ingest/npi_ingest.py
+      - data/ingest/configs/npi_ingest.yaml
     outs:
-      - data/processed/npi/
+      - data/raw/nppes_v2_may2026:
+          cache: false
+          persist: true
 
   ingest_plan_puf:
+    desc: "Download CMS Exchange PUF 2026 ZIPs and load plans + plan_benefits"
     cmd: python data/ingest/plan_puf_ingest.py
     deps:
       - data/ingest/plan_puf_ingest.py
+      - data/ingest/configs/plan_puf_ingest.yaml
     outs:
-      - data/processed/plans/
+      - data/raw/exchange_puf_2026:
+          cache: false
+          persist: true
 
-  synthetic_cards:
-    cmd: python data/ingest/synthetic_cards.py --count 100
+  ingest_icd_hcpcs:
+    desc: "Download CMS ICD-10-CM FY2026 and HCPCS Level II tables"
+    cmd: python data/ingest/icd_hcpcs_ingest.py
+    deps:
+      - data/ingest/icd_hcpcs_ingest.py
+      - data/ingest/configs/icd_hcpcs_ingest.yaml
+    outs:
+      - data/raw/icd_hcpcs:
+          cache: false
+          persist: true
+
+  download_sbcs:
+    desc: "Download SBC PDFs from manifest (5-10 files across 4 payors)"
+    cmd: python data/ingest/sbc_download.py
+    deps:
+      - data/ingest/sbc_download.py
+      - data/ingest/configs/sbc_manifest.yaml
+    outs:
+      - data/raw/sbcs:
+          cache: false
+          persist: true
+
+  generate_synthetic_cards:
+    desc: "Render 100 synthetic insurance card PNGs (4 payors × 25) for OCR training"
+    cmd: python data/ingest/synthetic_cards.py
     deps:
       - data/ingest/synthetic_cards.py
-      - data/ingest/configs/cards.yaml
     outs:
-      - data/processed/synthetic_cards/
+      - data/processed/synthetic_cards
 
+  # ── Phase 2: depend on plan_puf ─────────────────────────────────────────
+  ingest_formulary:
+    desc: "Download Part D CY2026 formulary ZIP and load formulary_drug (needs ingest_plan_puf)"
+    cmd: python data/ingest/formulary_ingest.py
+    deps:
+      - data/ingest/formulary_ingest.py
+      - data/ingest/configs/formulary_ingest.yaml
+      - data/raw/exchange_puf_2026  # ordering signal: run after ingest_plan_puf
+    outs:
+      - data/raw/formulary_cy2026:
+          cache: false
+          persist: true
+
+  parse_mrf:
+    desc: >-
+      Stream-parse Transparency-in-Coverage MRF (Schema 2.0) → in_network.
+      Requires mrf.source_url at CLI: dvc repro parse_mrf -f
+      --set-param mrf.source_url=https://... (see Q2 in data/PLAN.md)
+    cmd: python data/ingest/mrf_parser.py
+    deps:
+      - data/ingest/mrf_parser.py
+      - data/ingest/configs/mrf_ingest.yaml
+      - data/raw/exchange_puf_2026  # ordering signal: run after ingest_plan_puf
+    outs:
+      - data/raw/mrf:
+          cache: false
+          persist: true
+
+  # ── Phase 2: depends on npi ─────────────────────────────────────────────
+  sync_care_compare:
+    desc: "Fetch CMS Care Compare hospital ratings via API and UPDATE providers (needs ingest_npi)"
+    cmd: python data/ingest/care_compare_sync.py
+    deps:
+      - data/ingest/care_compare_sync.py
+      - data/ingest/configs/care_compare_sync.yaml
+      - data/raw/nppes_v2_may2026  # ordering signal: run after ingest_npi
+    # no outs: pure DB UPDATE; idempotent by design
+
+  # ── Phase 2: depends on plan_puf + formulary ────────────────────────────
+  seed_members:
+    desc: "Seed 30 test members into members table and write X12 271 stubs"
+    cmd: python data/ingest/seed_test_members.py
+    deps:
+      - data/ingest/seed_test_members.py
+      - data/raw/exchange_puf_2026  # ordering signal: run after ingest_plan_puf
+      - data/raw/formulary_cy2026   # ordering signal: run after ingest_formulary
+    outs:
+      - data/stubs/eligibility_271:
+          cache: false
+          persist: true
+
+  # ── ML training (downstream of synthetic_cards) ─────────────────────────
   train_card_ocr:
+    desc: "Fine-tune LayoutLMv3 for card OCR (just train.card_ocr wraps this)"
     cmd: cd services/document-ai/ml && python -m models.card_ocr_layoutlm.train
     deps:
-      - data/processed/synthetic_cards/
+      - data/processed/synthetic_cards
       - services/document-ai/ml/models/card_ocr_layoutlm/
     outs:
       - artifacts/card_ocr/latest/
