@@ -4,12 +4,11 @@ import base64
 import binascii
 import io
 
+from document_ai.inference.card_ocr_runner import CardOCRRunner
+from document_ai.inference.payor_classifier_runner import PayorClassifierRunner
 from fastapi import APIRouter, HTTPException, Request
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
-
-from document_ai.inference.card_ocr_runner import CardOCRRunner
-from document_ai.inference.payor_classifier_runner import PayorClassifierRunner
 
 router = APIRouter()
 
@@ -27,19 +26,19 @@ def _decode_image(image_base64: str) -> Image.Image:
         raise HTTPException(
             status_code=422,
             detail=f"image_base64 is not valid base64: {exc}",
-        )
+        ) from exc
     try:
         return Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except UnidentifiedImageError:
+    except UnidentifiedImageError as exc:
         raise HTTPException(
             status_code=422,
             detail="Could not decode image bytes. Supply a PNG or JPEG encoded as base64.",
-        )
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=422,
             detail=f"Image decoding failed: {exc}",
-        )
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -92,13 +91,14 @@ class PayorClassifyRequest(BaseModel):
 
 
 class PayorClassifyResponse(BaseModel):
-    payor_class: str = Field(
+    payor_label: str = Field(
         description="Predicted payor label. One of: Aetna, UHC, Cigna, BCBS, Humana, "
         "Kaiser, Anthem, Other.  Forced to 'Other' when confidence < 0.50.",
     )
     confidence: float = Field(
         description="Softmax probability of the top-1 class before the threshold check."
     )
+    source_model: str = Field(description="Model identifier used to produce this prediction.")
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ def card_ocr(body: CardOCRRequest, request: Request) -> CardOCRResponse:
     try:
         result = runner(image, card_id=body.card_id)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}") from exc
     return CardOCRResponse(**result)
 
 
@@ -179,5 +179,5 @@ def payor_classify(body: PayorClassifyRequest, request: Request) -> PayorClassif
     try:
         result = runner(image)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Inference failed: {exc}") from exc
     return PayorClassifyResponse(**result)

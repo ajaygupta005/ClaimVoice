@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoModelForTokenClassification, LayoutLMv3Processor
+
+# pytesseract writes temp images to tempfile.gettempdir().  On macOS the
+# shell-level TMPDIR is often /tmp (or a sandbox path) which Leptonica cannot
+# read back.  Use ~/tmp so the tesseract sub-process can always reach the file.
+_PYTESSERACT_TMPDIR = Path.home() / "tmp"
+_PYTESSERACT_TMPDIR.mkdir(exist_ok=True)
+tempfile.tempdir = str(_PYTESSERACT_TMPDIR)
 
 FIELD_NAMES: list[str] = [
     "member_id",
@@ -49,18 +56,16 @@ class CardOCRRunner:
             )
 
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._processor = LayoutLMv3Processor.from_pretrained(
-            str(checkpoint), apply_ocr=True
+        self._processor = LayoutLMv3Processor.from_pretrained(str(checkpoint), apply_ocr=True)
+        self._model = AutoModelForTokenClassification.from_pretrained(str(checkpoint)).to(
+            self._device
         )
-        self._model = AutoModelForTokenClassification.from_pretrained(
-            str(checkpoint)
-        ).to(self._device)
         self._model.eval()
         self._id2label: dict[int, str] = self._model.config.id2label
 
     def __call__(
         self,
-        image: Union[Image.Image, np.ndarray],
+        image: Image.Image | np.ndarray,
         card_id: str,
     ) -> dict:
         """Run card OCR on *image* and return the D2 JSON payload.
@@ -101,7 +106,6 @@ class CardOCRRunner:
             return_tensors="pt",
             truncation=True,
             max_length=512,
-            is_split_into_words=True,
             padding="max_length",
         )
         # word_ids maps each token position → its source word index (None for specials).
@@ -130,13 +134,9 @@ class CardOCRRunner:
             word_conf[w_id] = token_confs[token_idx]
 
         # --- Step 5: Decode BIO spans → field values ---
-        fields = self._build_field_list(
-            words, word_boxes, word_label, word_conf, img_w, img_h
-        )
+        fields = self._build_field_list(words, word_boxes, word_label, word_conf, img_w, img_h)
         low_conf = [
-            f["field_name"]
-            for f in fields
-            if f["value"] and f["confidence"] < _LOW_CONF_THRESHOLD
+            f["field_name"] for f in fields if f["value"] and f["confidence"] < _LOW_CONF_THRESHOLD
         ]
 
         return {

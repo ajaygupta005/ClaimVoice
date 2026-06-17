@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 import torch
@@ -98,7 +97,7 @@ class PayorClassifierRunner:
 
     def __call__(
         self,
-        image: Union[Image.Image, np.ndarray],
+        image: Image.Image | np.ndarray,
     ) -> dict:
         """Classify the payor shown on *image*.
 
@@ -131,6 +130,7 @@ class PayorClassifierRunner:
             predicted_class = "Other"
 
         return {
-            "payor_class": predicted_class,
+            "payor_label": predicted_class,
             "confidence": round(confidence, 4),
+            "source_model": "payor_classifier_resnet_v0.1",
         }

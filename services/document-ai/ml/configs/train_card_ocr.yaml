@@ -1,11 +1,30 @@
-defaults: [_self_]
+defaults:
+  - _self_
+
+# Prevent Hydra from changing the working directory so __file__-anchored
+# paths in the training script resolve correctly.
+hydra:
+  job:
+    chdir: false
+
 model:
   name: microsoft/layoutlmv3-base
-  num_labels: 12
+  # O + B-/I- for each of 12 fields  →  1 + 24 = 25
+  num_labels: 25
+
 data:
-  train_dir: data/processed/synthetic_cards/train
-  val_dir:   data/processed/synthetic_cards/val
+  val_fraction: 0.2
+  # Set to 0 when the dataset __getitem__ calls a Hugging Face processor,
+  # which spawns its own threads; >0 workers can deadlock on some platforms.
+  num_workers: 0
+  seed: 42
+  max_length: 512         # tokeniser truncation / padding length
+
 training:
   epochs: 10
-  batch_size: 8
-  lr: 5e-5
+  # LayoutLMv3 processes a full image patch grid per sample; keep batch small
+  # on CPU / consumer GPUs.  Increase to 8–16 on A100 / H100.
+  batch_size: 4
+  lr: 5.0e-5
+  weight_decay: 1.0e-4
+  patience: 3             # early-stop epochs without val_loss improvement

@@ -1,0 +1,16 @@
+model:
+  name: resnet50
+  num_classes: 8
+  pretrained: true
+data:
+  val_fraction: 0.2
+  num_workers: 0
+  seed: 42
+training:
+  epochs: 2
+  batch_size: 32
+  lr: 0.0001
+  weight_decay: 0.0001
+  patience: 5
+  optimizer: adamw
+  lr_scheduler: cosine

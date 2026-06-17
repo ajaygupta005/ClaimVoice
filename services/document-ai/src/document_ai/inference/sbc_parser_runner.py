@@ -79,9 +79,7 @@ def _extract_pages_pdfplumber(pdf_path: Path) -> list[dict]:
         for page_num, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
             words = page.extract_words() or []
-            logger.debug(
-                f"[sbc_parser] page {page_num}: {len(text)} chars, {len(words)} words"
-            )
+            logger.debug(f"[sbc_parser] page {page_num}: {len(text)} chars, {len(words)} words")
             pages.append(
                 {
                     "page_num": page_num,
@@ -127,8 +125,7 @@ def _extract_pages(pdf_path: Path) -> list[dict]:
         return _extract_pages_pypdf2(pdf_path)
     except ImportError as exc:
         raise ImportError(
-            "No PDF extraction library found. "
-            "Install at least one of: pdfplumber, PyPDF2"
+            "No PDF extraction library found. Install at least one of: pdfplumber, PyPDF2"
         ) from exc
 
 
@@ -189,7 +186,7 @@ def _model_based_sections(
     device: torch.device,
 ) -> list[dict]:
     """Run LayoutLMv3 token classification to detect section boundaries."""
-    id2label: dict[int, str] = model.config.id2label
+    id2label: dict[int, str] = model.config.id2label  # type: ignore[attr-defined]
     all_section_spans: dict[str, list[str]] = {s: [] for s in SECTION_LABELS}
 
     for page in pages:
@@ -235,7 +232,7 @@ def _model_based_sections(
         model_input = {k: v.to(device) for k, v in tok_enc.items()}
 
         with torch.no_grad():
-            logits = model(**model_input).logits  # (1, seq_len, num_labels)
+            logits = model(**model_input).logits  # type: ignore[operator]  # (1, seq_len, num_labels)
 
         pred_ids = logits[0].argmax(dim=-1).tolist()
 
@@ -285,9 +282,7 @@ def _model_based_sections(
     present = {s["section_name"] for s in sections}
     for mandatory in ("plan_summary", "benefits", "coverage_exclusions"):
         if mandatory not in present:
-            sections.append(
-                {"section_name": mandatory, "benefit_rows": [], "raw_text": ""}
-            )
+            sections.append({"section_name": mandatory, "benefit_rows": [], "raw_text": ""})
 
     return sections
 
@@ -332,15 +327,15 @@ class SBCParserRunner:
         if checkpoint_dir.exists() and weights_path.exists():
             logger.info(f"[sbc_parser] loading model from {checkpoint_dir}")
             self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self._processor = LayoutLMv3Processor.from_pretrained(
+            self._processor: LayoutLMv3Processor | None = LayoutLMv3Processor.from_pretrained(
                 str(checkpoint_dir), apply_ocr=False
             )
             self._model: AutoModelForTokenClassification | None = (
-                AutoModelForTokenClassification.from_pretrained(
-                    str(checkpoint_dir)
-                ).to(self._device)
+                AutoModelForTokenClassification.from_pretrained(str(checkpoint_dir)).to(  # type: ignore[union-attr]
+                    self._device
+                )
             )
-            self._model.eval()
+            self._model.eval()  # type: ignore[union-attr]
             logger.info("[sbc_parser] model loaded successfully")
         else:
             logger.warning(
@@ -378,14 +373,10 @@ class SBCParserRunner:
         try:
             pages = _extract_pages(path)
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to extract text from '{path.name}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Failed to extract text from '{path.name}': {exc}") from exc
 
         total_chars = sum(len(p["text"]) for p in pages)
-        logger.debug(
-            f"[sbc_parser] extracted {len(pages)} pages, {total_chars} total chars"
-        )
+        logger.debug(f"[sbc_parser] extracted {len(pages)} pages, {total_chars} total chars")
 
         if total_chars == 0:
             logger.warning(
@@ -396,16 +387,12 @@ class SBCParserRunner:
         try:
             if self._model is not None and self._processor is not None:
                 logger.debug("[sbc_parser] using model-based section detection")
-                sections = _model_based_sections(
-                    pages, self._model, self._processor, self._device
-                )
+                sections = _model_based_sections(pages, self._model, self._processor, self._device)
             else:
                 logger.debug("[sbc_parser] using rule-based section detection")
                 sections = _rule_based_sections(pages)
         except Exception as exc:
-            raise RuntimeError(
-                f"Section detection failed for '{path.name}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Section detection failed for '{path.name}': {exc}") from exc
 
         logger.info(
             f"[sbc_parser] document_id={document_id!r} parsed: "
@@ -413,7 +400,14 @@ class SBCParserRunner:
             f"{sum(len(s['benefit_rows']) for s in sections)} benefit rows"
         )
 
+        plan_name = ""
+        for section in sections:
+            if section["section_name"] == "plan_summary" and section["raw_text"]:
+                plan_name = section["raw_text"].splitlines()[0].strip()
+                break
+
         return {
             "document_id": document_id,
+            "plan_name": plan_name,
             "sections": sections,
         }
