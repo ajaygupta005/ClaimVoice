@@ -6,7 +6,11 @@ export const metadata = { title: 'ClaimVoice', description: 'AI insurance assist
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
-      <html lang="en"><body>{children}</body></html>
+      <html lang="en" suppressHydrationWarning>
+        <body className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased">
+          {children}
+        </body>
+      </html>
     </ClerkProvider>
   )
 }

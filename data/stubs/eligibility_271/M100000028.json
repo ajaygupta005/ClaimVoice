@@ -1,0 +1,16 @@
+{
+  "member_id": "M100000028",
+  "eligibility_status": "inactive",
+  "plan_name": "Cigna Connect Platinum",
+  "deductible_individual_cents": 0,
+  "deductible_ytd_cents": 0,
+  "oop_max_individual_cents": 200000,
+  "oop_ytd_cents": 20000,
+  "effective_date": "2026-01-01",
+  "termination_date": "2025-12-01",
+  "copays": {
+    "primary_care_cents": 1000,
+    "specialist_cents": 2000,
+    "emergency_cents": 15000
+  }
+}

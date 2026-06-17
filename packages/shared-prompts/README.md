@@ -1,3 +1,7 @@
-Versioned Claude prompts.
-Each prompt lives in its own subfolder with a README explaining purpose,
-inputs, expected outputs, and changelog.
+# shared-prompts
+
+Versioned Claude prompts used across services. Edit prompts here, not inline
+in service code, so eval suite can test prompt changes before merge.
+
+Each prompt is a tiny module that exports a string. Keep prompts short and
+specific.

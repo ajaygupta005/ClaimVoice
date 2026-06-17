@@ -1,0 +1,635 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Mic, MicOff, Send, CheckCircle2, Loader2, Circle, ShieldCheck, Bot, User, ChevronDown, RotateCcw,
+} from 'lucide-react'
+import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
+import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
+import { sendVoiceAgentQuestion } from '@/lib/voice-agent-client'
+import { VoiceTurnController } from '@/lib/voice-turn-controller'
+import { synthesizeSpeech } from '@/lib/tts-client'
+
+// ── Waveform ──────────────────────────────────────────────────────────────────
+
+function Waveform({ active }: { active: boolean }) {
+  return (
+    <div className="flex items-end gap-[2px] h-5">
+      {[0.4, 0.7, 1, 0.6, 0.9, 0.5, 0.8, 0.45, 0.7].map((h, i) => (
+        <div
+          key={i}
+          className={`w-[3px] rounded-full transition-all duration-300 ${active ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+          style={{
+            height: active ? `${h * 20}px` : '3px',
+            animation: active ? `wave 0.8s ease-in-out ${i * 70}ms infinite alternate` : 'none',
+          }}
+        />
+      ))}
+      <style>{`@keyframes wave { from { transform: scaleY(0.3); } to { transform: scaleY(1); } }`}</style>
+    </div>
+  )
+}
+
+// ── Status pill ───────────────────────────────────────────────────────────────
+
+function StatusPill({ status }: { status: VoiceStatus }) {
+  const map: Record<VoiceStatus, { label: string; cls: string; dot: string }> = {
+    ready:            { label: 'Ready',       cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',    dot: 'bg-slate-400' },
+    listening:        { label: 'Listening',   cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-500 animate-pulse' },
+    finalizing_stt:   { label: 'Finalizing…', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-400' },
+    thinking:         { label: 'Thinking',    cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', dot: 'bg-amber-500 animate-pulse' },
+    speaking:         { label: 'Speaking',    cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300', dot: 'bg-green-500 animate-pulse' },
+    error_recoverable:{ label: 'Error',       cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',         dot: 'bg-red-500' },
+  }
+  const { label, cls, dot } = map[status]
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {status === 'thinking' && <Loader2 size={10} className="animate-spin -ml-0.5" />}
+      {label}
+    </span>
+  )
+}
+
+// ── Transcript bubble ─────────────────────────────────────────────────────────
+
+function Bubble({ turn }: { turn: VoiceTurn }) {
+  const isMember = turn.role === 'member'
+  return (
+    <div className={`flex items-end gap-1.5 ${isMember ? 'flex-row-reverse' : ''}`}>
+      <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center ${
+        isMember ? 'bg-blue-100 dark:bg-blue-900/40' : 'bg-slate-100 dark:bg-slate-800'
+      }`}>
+        {isMember
+          ? <User size={11} className="text-blue-600 dark:text-blue-400" />
+          : <Bot  size={11} className="text-slate-500 dark:text-slate-400" />}
+      </div>
+      <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
+        isMember
+          ? 'bg-blue-500 text-white rounded-br-sm'
+          : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-sm'
+      }`}>
+        {turn.text}
+      </div>
+    </div>
+  )
+}
+
+// ── Horizontal pipeline ───────────────────────────────────────────────────────
+
+type StepState = 'completed' | 'running' | 'pending'
+interface PipeStep { title: string; detail: string; state: StepState }
+
+function PipelineStep({ step }: { step: PipeStep }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-0 px-1">
+      <div className="flex items-center gap-1">
+        {step.state === 'completed' && <CheckCircle2 size={11} className="text-green-500 shrink-0" />}
+        {step.state === 'running'   && <Loader2      size={11} className="text-blue-500 animate-spin shrink-0" />}
+        {step.state === 'pending'   && <Circle       size={11} className="text-slate-300 dark:text-slate-600 shrink-0" />}
+        <span className={`text-[11px] font-semibold truncate ${
+          step.state === 'completed' ? 'text-slate-700 dark:text-slate-200' :
+          step.state === 'running'   ? 'text-blue-700 dark:text-blue-300'   :
+                                       'text-slate-400 dark:text-slate-500'
+        }`}>{step.title}</span>
+      </div>
+      <p className="text-[9px] text-slate-400 dark:text-slate-500 truncate w-full text-center leading-tight">
+        {step.detail}
+      </p>
+    </div>
+  )
+}
+
+// ── Pipeline step builder ─────────────────────────────────────────────────────
+
+interface CompletedPipeDetails {
+  identify: string
+  understand: string
+  check: string
+  guard: string
+  respond: string
+}
+
+function getPipelineSteps(
+  status: VoiceStatus,
+  completed?: CompletedPipeDetails,
+): PipeStep[] {
+  if (status === 'listening' || status === 'finalizing_stt') return [
+    { title: 'Identify',   detail: 'Listening…',   state: 'running'   },
+    { title: 'Understand', detail: 'Waiting',       state: 'pending'   },
+    { title: 'Check',      detail: 'Waiting',       state: 'pending'   },
+    { title: 'Guard',      detail: 'Waiting',       state: 'pending'   },
+    { title: 'Respond',    detail: 'Waiting',       state: 'pending'   },
+  ]
+  if (status === 'thinking') return [
+    { title: 'Identify',   detail: 'Member verified', state: 'completed' },
+    { title: 'Understand', detail: 'Extracting…',     state: 'running'   },
+    { title: 'Check',      detail: 'Querying…',       state: 'running'   },
+    { title: 'Guard',      detail: 'Waiting',         state: 'pending'   },
+    { title: 'Respond',    detail: 'Waiting',         state: 'pending'   },
+  ]
+  const d = completed ?? {
+    identify:   'Member verified',
+    understand: 'Intent extracted',
+    check:      'Eligibility queried',
+    guard:      'Claims grounded',
+    respond:    'Answer delivered',
+  }
+  if (status === 'speaking') return [
+    { title: 'Identify',   detail: d.identify,   state: 'completed' },
+    { title: 'Understand', detail: d.understand, state: 'completed' },
+    { title: 'Check',      detail: d.check,      state: 'completed' },
+    { title: 'Guard',      detail: d.guard,      state: 'completed' },
+    { title: 'Respond',    detail: 'Streaming…', state: 'running'   },
+  ]
+  return [
+    { title: 'Identify',   detail: d.identify,   state: 'completed' },
+    { title: 'Understand', detail: d.understand, state: 'completed' },
+    { title: 'Check',      detail: d.check,      state: 'completed' },
+    { title: 'Guard',      detail: d.guard,      state: 'completed' },
+    { title: 'Respond',    detail: d.respond,    state: 'completed' },
+  ]
+}
+
+// ── LED rail ──────────────────────────────────────────────────────────────────
+
+function LedRow({ label, ledStatus }: { label: string; ledStatus: LedStatus }) {
+  const dot: Record<LedStatus, string> = {
+    connected: 'bg-green-500',
+    demo:      'bg-slate-400 dark:bg-slate-500',
+    degraded:  'bg-amber-400 animate-pulse',
+    offline:   'bg-red-500',
+  }
+  return (
+    <div className="flex items-center gap-1.5 py-[3px]">
+      <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dot[ledStatus]}`} />
+      <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-none">{label}</span>
+    </div>
+  )
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const VOICE_QUESTIONS = [
+  'Is an MRI of the brain covered?',
+  'What is my urgent care copay?',
+  'Is lisinopril on my formulary?',
+  'Find a cardiologist near me who is in network',
+  'Where can I get an x-ray?',
+  'What can you do?',
+]
+
+const DEFAULT_BACKENDS: BackendStatus[] = [
+  { label: 'Voice Agent API', detail: '',          status: 'demo' },
+  { label: 'STT: Browser',    detail: '',          status: 'demo' },
+  { label: 'Voice',           detail: 'inactive',  status: 'demo' },
+  { label: 'Guard',           detail: '',          status: 'demo' },
+  { label: 'Claude answer',   detail: 'mock',      status: 'demo' },
+]
+
+// ── Examples drawer ───────────────────────────────────────────────────────────
+
+function ExamplesDrawer({
+  onPick, disabled,
+}: {
+  onPick: (q: string) => void
+  disabled: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="px-3 pb-1 shrink-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+      >
+        <ChevronDown
+          size={11}
+          className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
+        Examples
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {VOICE_QUESTIONS.map(q => (
+            <button
+              key={q}
+              onClick={() => { setOpen(false); onPick(q) }}
+              disabled={disabled}
+              className="text-left text-[11px] px-2.5 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-blue-50 hover:border-blue-200 dark:hover:bg-blue-900/20 dark:hover:border-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function VoiceAssistantUI() {
+  const [status,       setStatus]      = useState<VoiceStatus>('ready')
+  const [turns,        setTurns]       = useState<VoiceTurn[]>([])
+  const [input,        setInput]       = useState('')
+  const [backends,     setBackends]    = useState<BackendStatus[]>(DEFAULT_BACKENDS)
+  const [guardPassed,  setGuardPassed] = useState<boolean | null>(null)
+  const [pipeDetails,  setPipeDetails] = useState<CompletedPipeDetails | undefined>(undefined)
+  const [usedFallback, setUsedFallback] = useState(false)
+  const [composerMode, setComposerMode] = useState<string>('mock')
+  const [interimText,  setInterimText] = useState('')
+
+  const controllerRef = useRef<VoiceTurnController | null>(null)
+  const transcriptRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (transcriptRef.current)
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
+  }, [turns])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { controllerRef.current?.cleanup('unmount') }
+  }, [])
+
+  function newController(): VoiceTurnController {
+    controllerRef.current?.cleanup('new_turn')
+    // ctrl reference captured so the error handler can call cleanup on itself
+    let ctrl: VoiceTurnController
+    ctrl = new VoiceTurnController(
+      (s) => setStatus(s as VoiceStatus),
+      (t) => setInterimText(t),
+      (text) => { void runPipeline(text, 'voice') },
+      (msg) => {
+        console.warn('[VoiceUI] STT error:', msg)
+        setInterimText('')
+        // cleanup transitions to ready via onStateChange
+        ctrl.cleanup(`stt_error: ${msg}`)
+      },
+    )
+    controllerRef.current = ctrl
+    return ctrl
+  }
+
+  async function runPipeline(question: string, source: 'typed' | 'voice' | 'demo' = 'typed') {
+    const ctrl = controllerRef.current ?? newController()
+    // Snapshot turnId — any state update from an older turn is ignored
+    const myTurnId = ctrl.turnId
+    const signal   = ctrl.startBackend()
+
+    setInterimText('')
+    setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: question, timestampMs: Date.now() }])
+
+    let answerText = ''
+
+    // Guard: reject stale responses if a new turn started while we were awaiting
+    const isStale = () => controllerRef.current?.turnId !== myTurnId
+
+    try {
+      // Try real backend first
+      const backendResult = await sendVoiceAgentQuestion(question, source, signal)
+
+      if (isStale()) return  // new turn started; this response is discarded
+
+      if (backendResult) {
+        setUsedFallback(false)
+        answerText = backendResult.answer
+        setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: answerText, timestampMs: Date.now() }])
+        if (backendResult.composer_mode) setComposerMode(backendResult.composer_mode)
+        setGuardPassed(backendResult.grounded)
+        setPipeDetails(backendResult.pipeDetails)
+        // Relabel backends: rename Claude → Claude answer, STT → STT: Browser
+        const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
+        setBackends(backendResult.backends.map(b => {
+          if (b.label === 'Claude') return { ...b, label: 'Claude answer', status: claudeStatus as LedStatus }
+          if (b.label === 'STT')   return { ...b, label: 'STT: Browser' }
+          return b
+        }))
+      } else {
+        // Backend unavailable — local mock fallback
+        setUsedFallback(true)
+        const mockResult = runMockPipeline(question)
+        answerText = mockResult.answer
+        setTurns(p => [...p, { id: `a-${Date.now()}`, role: 'assistant', text: answerText, timestampMs: Date.now() }])
+        setBackends(mockResult.backends.map(b => b.label === 'Voice Agent API'
+          ? { ...b, detail: 'offline', status: 'offline' as LedStatus }
+          : b
+        ))
+        setGuardPassed(mockResult.guard.passed)
+        setPipeDetails(undefined)
+      }
+    } catch (err: unknown) {
+      if (isStale()) return
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      const reason  = isAbort ? 'timeout' : 'fetch_error'
+      ctrl.backendFailed(reason)
+      setTurns(p => [...p, {
+        id: `err-${Date.now()}`, role: 'assistant',
+        text: "I'm having trouble reaching the server. Please try again.",
+        timestampMs: Date.now(),
+      }])
+      ctrl.cleanup(`backend_error: ${reason}`)
+      return
+    }
+
+    if (isStale()) return
+
+    ctrl.backendSuccess()
+
+    // ── TTS: try Google, fall back to browser ─────────────────────────────
+    const onTtsDone = () => {
+      if (!isStale()) ctrl.cleanup('tts_done')
+    }
+
+    const ttsData = await synthesizeSpeech({ text: answerText })
+    if (isStale()) return
+
+    if (ttsData?.audioBase64) {
+      setBackends(prev => prev.map(b =>
+        b.label === 'Voice'
+          ? { ...b, label: 'Voice: Google TTS', status: 'connected' as LedStatus, detail: ttsData.voiceName }
+          : b
+      ))
+      await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, onTtsDone)
+    } else {
+      setBackends(prev => prev.map(b =>
+        b.label === 'Voice'
+          ? { ...b, label: 'Voice: Browser', status: 'degraded' as LedStatus, detail: 'speechSynthesis fallback' }
+          : b
+      ))
+      ctrl.speakBrowser(answerText, onTtsDone)
+    }
+  }
+
+  const handleMicClick = useCallback(() => {
+    if (status === 'thinking' || status === 'finalizing_stt') return
+
+    if (status === 'speaking') {
+      // Interrupt TTS and start new turn
+      const ctrl = newController()
+      ctrl.startSTT()
+      return
+    }
+
+    if (status === 'listening') {
+      controllerRef.current?.stopSTT()
+      return
+    }
+
+    // ready or error_recoverable → start new turn
+    const ctrl = newController()
+    ctrl.startSTT()
+    // If browser SR unavailable, ctrl is in listening state for demo fallback
+  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleReset() {
+    setInterimText('')
+    // cleanup() calls transition('ready') → onStateChange → setStatus('ready')
+    controllerRef.current?.cleanup('user_reset')
+    // If controller was null, set status manually
+    controllerRef.current = null
+    setStatus('ready')
+  }
+
+  function handleSend() {
+    const text = input.trim()
+    if (!text || status === 'thinking' || status === 'finalizing_stt') return
+    setInput('')
+    // newController() calls cleanup() on any current controller (stops TTS/STT)
+    newController()
+    void runPipeline(text, 'typed')
+  }
+
+  const isInputBusy = status === 'thinking' || status === 'finalizing_stt'
+  const latestAssistant = [...turns].reverse().find(t => t.role === 'assistant')
+  const pipelineSteps   = getPipelineSteps(status, pipeDetails)
+
+  const micLabel = status === 'listening' ? 'Stop recording' : 'Push to talk'
+  const micStatusText =
+    status === 'listening'         ? 'Listening — tap to stop'          :
+    status === 'finalizing_stt'    ? 'Finalizing speech…'               :
+    status === 'thinking'          ? 'Checking plan…'                   :
+    status === 'speaking'          ? 'Speaking answer — tap to stop'    :
+    status === 'error_recoverable' ? 'Error — tap to retry'             :
+                                     'Tap mic to speak'
+
+  return (
+    <div className="flex gap-3 items-start">
+
+      {/* ── main column ──────────────────────────────────────────────────── */}
+      <div className="flex-1 min-w-0 flex flex-col gap-3">
+
+        {/* 1. Header */}
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white leading-tight">Voice Assistant</h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              AI telephone agent · Silver PPO 4500 · Maya Thompson
+              {usedFallback && (
+                <span className="ml-2 text-amber-500 font-medium">· demo fallback</span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReset}
+              title="Reset session"
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Reset voice session"
+            >
+              <RotateCcw size={13} />
+            </button>
+            <StatusPill status={status} />
+          </div>
+        </div>
+
+        {/* 2. Latest answer */}
+        <div className={`rounded-lg border overflow-hidden ${
+          latestAssistant
+            ? guardPassed === false
+              ? 'bg-white dark:bg-slate-900 border-red-200 dark:border-red-800/40'
+              : 'bg-white dark:bg-slate-900 border-green-200 dark:border-green-800/40'
+            : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700'
+        }`}>
+          <div className="px-3 py-2 flex items-start gap-2">
+            <ShieldCheck size={12} className={`mt-0.5 shrink-0 ${
+              latestAssistant
+                ? guardPassed === false ? 'text-red-500' : 'text-green-500'
+                : 'text-slate-400'
+            }`} />
+            <div className="min-w-0">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mr-2">
+                {latestAssistant
+                  ? guardPassed === false ? 'Guard flagged' : 'Guard passed'
+                  : 'Latest answer'}
+              </span>
+              <span className={`text-xs leading-snug ${
+                latestAssistant
+                  ? 'text-slate-800 dark:text-slate-200'
+                  : 'text-slate-400 dark:text-slate-500 italic'
+              }`}>
+                {latestAssistant?.text ?? 'No answer yet — ask a question to get started.'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Pipeline */}
+        <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 overflow-x-auto">
+          <div className="px-3 py-2 grid grid-cols-5 min-w-[400px]">
+            {pipelineSteps.map(step => (
+              <PipelineStep key={step.title} step={step} />
+            ))}
+          </div>
+        </div>
+
+        {/* 4. Agent Talk + Transcript */}
+        <div className="grid grid-cols-2 gap-3 h-[calc(100vh-260px)] min-h-[480px]">
+
+          {/* Agent Talk */}
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col min-h-0">
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 shrink-0 flex items-center justify-between">
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Agent Talk</span>
+              <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+                composerMode === 'claude'
+                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+              }`}>
+                {composerMode === 'claude' ? 'Claude answer' : 'Mock answer'}
+              </span>
+            </div>
+
+            {/* Mic + waveform row */}
+            <div className="px-4 py-4 flex items-center gap-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
+              <button
+                onClick={handleMicClick}
+                disabled={status === 'thinking' || status === 'finalizing_stt'}
+                aria-label={micLabel}
+                className={`shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                  status === 'listening' || status === 'finalizing_stt'
+                    ? 'bg-red-500 hover:bg-red-600 scale-105 shadow-red-200 dark:shadow-red-900/50'
+                    : status === 'thinking'
+                    ? 'bg-slate-200 dark:bg-slate-700 cursor-not-allowed opacity-60'
+                    : status === 'speaking'
+                    ? 'bg-amber-500 hover:bg-amber-600 active:scale-95 shadow-amber-200 dark:shadow-amber-900/50'
+                    : status === 'error_recoverable'
+                    ? 'bg-red-400 hover:bg-red-500 active:scale-95'
+                    : 'bg-blue-500 hover:bg-blue-600 active:scale-95 shadow-blue-200 dark:shadow-blue-900/50'
+                }`}
+              >
+                {status === 'listening' || status === 'finalizing_stt'
+                  ? <MicOff size={22} className="text-white" />
+                  : <Mic    size={22} className="text-white" />}
+              </button>
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                <Waveform active={status === 'listening'} />
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
+                  {micStatusText}
+                </span>
+              </div>
+            </div>
+
+            {/* Live speech preview */}
+            <div className={`px-4 py-2 min-h-[52px] shrink-0 border-b border-slate-100 dark:border-slate-800 transition-all ${
+              status === 'listening' ? 'bg-blue-50 dark:bg-blue-900/10' : ''
+            }`}>
+              {status === 'listening' || status === 'finalizing_stt' ? (
+                interimText ? (
+                  <p className="text-xs text-blue-700 dark:text-blue-300 leading-snug italic">
+                    &ldquo;{interimText}&rdquo;
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 italic">Listening…</p>
+                )
+              ) : (
+                <p className="text-xs text-slate-300 dark:text-slate-600 italic select-none">
+                  Speech preview
+                </p>
+              )}
+            </div>
+
+            {/* Examples collapsible drawer */}
+            <div className="pt-2 flex-1 overflow-y-auto min-h-0">
+              <ExamplesDrawer
+                onPick={q => {
+                  if (status === 'ready' || status === 'error_recoverable') {
+                    const ctrl = newController()
+                    controllerRef.current = ctrl
+                    void runPipeline(q, 'demo')
+                  }
+                }}
+                disabled={isInputBusy}
+              />
+            </div>
+
+            {/* Typed input */}
+            <div className="px-3 pb-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-2 shrink-0">
+              <input
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSend()}
+                placeholder="Or type a question…"
+                disabled={isInputBusy}
+                className="flex-1 px-3 py-1.5 text-xs rounded-md border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isInputBusy}
+                className="px-2.5 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+                aria-label="Send"
+              >
+                <Send size={13} />
+              </button>
+            </div>
+          </div>
+
+          {/* Transcript */}
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex flex-col min-h-0">
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Transcript</span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                {turns.length} msgs · {usedFallback ? 'demo fallback' : 'live'}
+              </span>
+            </div>
+            <div
+              ref={transcriptRef}
+              className="flex-1 p-3 space-y-2.5 overflow-y-auto min-h-0"
+            >
+              {turns.length === 0 && status === 'ready' && (
+                <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-4">
+                  <p className="text-xs text-slate-400 dark:text-slate-500">No conversation yet</p>
+                  <p className="text-[10px] text-slate-300 dark:text-slate-600">Ask a question using the mic or type below</p>
+                </div>
+              )}
+              {turns.map(turn => <Bubble key={turn.id} turn={turn} />)}
+              {/* Live interim bubble */}
+              {(status === 'listening' || status === 'finalizing_stt') && interimText && (
+                <div className="flex items-end gap-1.5 flex-row-reverse opacity-60">
+                  <div className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900/40">
+                    <User size={11} className="text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="max-w-[82%] px-3 py-2 rounded-2xl text-xs leading-relaxed bg-blue-400 text-white rounded-br-sm italic">
+                    {interimText}…
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* 5. Backend connections rail */}
+      <div className="hidden lg:flex flex-col w-32 shrink-0 gap-1 pt-[38px]">
+        <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-1">Connections</p>
+        <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5">
+          {backends.map(b => (
+            <LedRow key={b.label} label={b.label} ledStatus={b.status} />
+          ))}
+        </div>
+      </div>
+
+    </div>
+  )
+}

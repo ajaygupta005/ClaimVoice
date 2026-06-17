@@ -1,1 +1,102 @@
-[]
+[
+  {
+    "member_context": "Aetna PPO 2026, deductible $1500, YTD spend $450, in-network",
+    "question": "Is an MRI of the brain covered?",
+    "expected_answer": "Yes, MRI is covered. Since you have not met your deductible, you would pay the negotiated rate up to your remaining $1050 deductible."
+  },
+  {
+    "member_context": "UnitedHealthcare HDHP 2026, deductible $3000, YTD spend $0",
+    "question": "How much will a primary care visit cost me?",
+    "expected_answer": "You would pay the full negotiated rate because you have not met your deductible. Typically $100-150 for a primary care visit."
+  },
+  {
+    "member_context": "Cigna Open Access Plus 2026, in-network, copay $30 for PCP",
+    "question": "What is my copay for a primary care visit?",
+    "expected_answer": "Your copay for an in-network primary care visit is $30."
+  },
+  {
+    "member_context": "BCBS Empire EPO 2026, deductible met, 20% coinsurance",
+    "question": "I need a colonoscopy. What will I owe?",
+    "expected_answer": "You will pay 20% coinsurance of the negotiated rate since your deductible is met."
+  },
+  {
+    "member_context": "Aetna PPO 2026, formulary tier 1 copay $10",
+    "question": "Is lisinopril on my formulary?",
+    "expected_answer": "Yes, lisinopril is on your formulary as a Tier 1 generic. Your copay is $10."
+  },
+  {
+    "member_context": "UHC PPO 2026, no formulary info available",
+    "question": "Is Humira covered?",
+    "expected_answer": "I don't have formulary information for your plan. I can connect you with a benefits specialist."
+  },
+  {
+    "member_context": "Aetna PPO 2026, member in NYC",
+    "question": "Find a cardiologist near me who is in network.",
+    "expected_answer": "I can search for cardiologists within your in-network providers in NYC. Would you like me to look now?"
+  },
+  {
+    "member_context": "Cigna 2026, deductible $500, OOP max $5000, YTD spent $4900",
+    "question": "How much will my next ER visit cost?",
+    "expected_answer": "You are close to your out-of-pocket maximum. You will pay no more than $100 before you hit OOP max, then nothing for the rest of the year."
+  },
+  {
+    "member_context": "BCBS HMO 2026, requires PCP referral for specialists",
+    "question": "Can I see a dermatologist without a referral?",
+    "expected_answer": "Your HMO plan requires a PCP referral to see a specialist. You should book a PCP visit first to get the referral."
+  },
+  {
+    "member_context": "Aetna PPO 2026, mental health benefit copay $40",
+    "question": "Is therapy covered?",
+    "expected_answer": "Yes, mental health therapy is covered. Your in-network copay is $40 per session."
+  },
+  {
+    "member_context": "UHC Choice Plus 2026, urgent care copay $75",
+    "question": "What is my urgent care copay?",
+    "expected_answer": "Your in-network urgent care copay is $75."
+  },
+  {
+    "member_context": "Cigna PPO 2026, prior auth required for advanced imaging",
+    "question": "Do I need prior auth for an MRI?",
+    "expected_answer": "Yes, your plan requires prior authorization for advanced imaging like MRI. Your provider needs to submit the request before scheduling."
+  },
+  {
+    "member_context": "Aetna HDHP with HSA 2026, deductible $2800",
+    "question": "Can I use my HSA to pay for my deductible?",
+    "expected_answer": "Yes, HSA funds can be used to pay your deductible and other qualified medical expenses tax-free."
+  },
+  {
+    "member_context": "BCBS PPO 2026, vision benefit included",
+    "question": "Is an annual eye exam covered?",
+    "expected_answer": "Yes, your plan includes a vision benefit covering one annual eye exam, typically at $0 in-network."
+  },
+  {
+    "member_context": "UHC 2026, out-of-network coverage at 50%",
+    "question": "What if I see a doctor who is out of network?",
+    "expected_answer": "Your plan covers out-of-network care at 50% after you meet a separate out-of-network deductible. You will pay more than in-network."
+  },
+  {
+    "member_context": "Aetna PPO 2026, preventive care covered 100%",
+    "question": "Is my annual physical free?",
+    "expected_answer": "Yes, your annual physical is covered at 100% as preventive care when seen by an in-network provider."
+  },
+  {
+    "member_context": "Cigna 2026, deductible $1000, ER copay $250 after deductible",
+    "question": "What if I go to the emergency room?",
+    "expected_answer": "You will first pay toward your deductible, then a $250 ER copay applies."
+  },
+  {
+    "member_context": "BCBS 2026, telehealth visits $0 copay",
+    "question": "Are telehealth visits covered?",
+    "expected_answer": "Yes, your plan covers telehealth visits at $0 copay."
+  },
+  {
+    "member_context": "UHC HMO 2026, maternity care included",
+    "question": "Is maternity care covered?",
+    "expected_answer": "Yes, maternity care is fully covered under your HMO plan, including prenatal visits and delivery."
+  },
+  {
+    "member_context": "Aetna PPO 2026, no dental benefit",
+    "question": "Is a dental cleaning covered?",
+    "expected_answer": "Your medical plan does not include dental coverage. You may have a separate dental plan; I can help if you have those details."
+  }
+]

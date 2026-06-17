@@ -1,0 +1,16 @@
+{
+  "member_id": "M100000030",
+  "eligibility_status": "suspended",
+  "plan_name": "UHC Silver Choice",
+  "deductible_individual_cents": 450000,
+  "deductible_ytd_cents": 112500,
+  "oop_max_individual_cents": 750000,
+  "oop_ytd_cents": 75000,
+  "effective_date": "2026-01-01",
+  "termination_date": null,
+  "copays": {
+    "primary_care_cents": 3500,
+    "specialist_cents": 7500,
+    "emergency_cents": 35000
+  }
+}

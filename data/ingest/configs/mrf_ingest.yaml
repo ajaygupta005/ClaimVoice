@@ -1,0 +1,27 @@
+mrf:
+  # Transparency-in-Coverage in-network rates file (CMS Schema 2.0)
+  # source_url MUST be set at runtime — no default (files are payor-specific).
+  # Supports .json and .json.gz. Can be a URL or a local file path.
+  #
+  # Example (override at CLI):
+  #   python data/ingest/mrf_parser.py mrf.source_url=https://...
+  #
+  # Open question Q2: which Aetna/BCBS NYC MRF URL to use for the demo subset?
+  # Aetna MRF index: https://health1.aetna.com/app/open-mrf
+  # BCBS index varies by licensee; check: https://www.bcbs.com/legal/machine-readable-file
+  source_url: ""
+
+  payor: "aetna"              # label used for audit_source (mrf_<payor>)
+  extract_dir: "data/raw/mrf"
+
+  # Optional: pin to a specific plan by marketing name.
+  # If unset, uses the first plan matching issuer_name ILIKE %payor%.
+  # plan_marketing_name: "Aetna Bronze 6850"
+
+  database:
+    connection_string: "${oc.env:DATABASE_URL,postgresql://localhost/claimvoice}"
+    batch_size: 10000
+
+logging:
+  level: "INFO"
+  file: "data/ingest.log"

@@ -1,17 +1,9 @@
 ## What
-<!-- One-line summary of the change -->
+<!-- one line summary -->
 
 ## Why
-<!-- Context / motivation -->
-
-## How
-<!-- Implementation notes; call out tradeoffs -->
+<!-- why is this change needed -->
 
 ## Testing
 - [ ] Unit tests pass
-- [ ] Integration tests pass
 - [ ] Manual smoke test
-- [ ] Updated relevant docs
-
-## Screenshots / traces
-<!-- For UI / agent changes -->
