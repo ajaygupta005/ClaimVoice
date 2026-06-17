@@ -23,3 +23,4 @@ You'll need pnpm, uv, just, and Docker installed first.
 - `eval/` — Inspect AI eval suite
 - `infra/` — Docker compose pieces and dashboards
 - `docs/` — spec, deep-dive, ADRs, and per-commit work units under `docs/components/`
+EOD
