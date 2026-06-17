@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Mic, MicOff, Send, CheckCircle2, Loader2, Circle, ShieldCheck, Bot, User, ChevronDown, RotateCcw,
+  Mic, MicOff, Send, CheckCircle2, Loader2, Circle, ShieldCheck, Bot, User, ChevronDown, RotateCcw, Volume2,
 } from 'lucide-react'
 import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
@@ -168,6 +168,95 @@ function LedRow({ label, ledStatus }: { label: string; ledStatus: LedStatus }) {
   )
 }
 
+// ── Approved browser voices ───────────────────────────────────────────────────
+
+const APPROVED_BROWSER_VOICES = [
+  { name: 'Google UK English Male',   lang: 'en-GB', pitch: 0.85 },
+  { name: 'Google UK English Female', lang: 'en-GB', pitch: 0.95 },
+] as const
+
+const VOICE_PREVIEW_PHRASE = 'ClaimVoice is ready. I will answer using verified plan facts.'
+
+type BrowserVoiceResolution = {
+  voice: SpeechSynthesisVoice | null
+  label: string
+  pitch: number
+}
+
+type SpeechSynthesisDump = {
+  supported: boolean
+  speaking: boolean
+  pending: boolean
+  paused: boolean
+  voicesCount: number
+  resolved: {
+    label: string
+    pitch: number
+    voice: {
+      name: string
+      lang: string
+      default: boolean
+      localService: boolean
+    } | null
+  }
+  voices: string[]
+}
+
+declare global {
+  interface Window {
+    __claimVoiceTtsDump?: () => SpeechSynthesisDump
+  }
+}
+
+// Resolve a usable browser voice at speak-time (not from stale React state).
+// Prefers approved Google UK voices, then any en-US, then any English.
+function resolveBrowserVoice(): BrowserVoiceResolution {
+  if (typeof window === 'undefined' || !window.speechSynthesis) {
+    return { voice: null, label: 'Browser default', pitch: 0.9 }
+  }
+  const voices = window.speechSynthesis.getVoices()
+  for (const approved of APPROVED_BROWSER_VOICES) {
+    const match = voices.find(v => v.name === approved.name)
+    if (match) return { voice: match, label: match.name, pitch: approved.pitch }
+  }
+  const english = voices.find(v => v.lang === 'en-US')
+    ?? voices.find(v => v.lang.startsWith('en'))
+    ?? null
+  return { voice: english, label: english?.name ?? 'Browser default', pitch: 0.9 }
+}
+
+function getSpeechSynthesisDump(): SpeechSynthesisDump {
+  const synth = typeof window !== 'undefined' ? window.speechSynthesis : null
+  const voices = synth?.getVoices() ?? []
+  const resolved = resolveBrowserVoice()
+  return {
+    supported: Boolean(synth),
+    speaking: synth?.speaking ?? false,
+    pending: synth?.pending ?? false,
+    paused: synth?.paused ?? false,
+    voicesCount: voices.length,
+    resolved: {
+      label: resolved.label,
+      pitch: resolved.pitch,
+      voice: resolved.voice
+        ? {
+            name: resolved.voice.name,
+            lang: resolved.voice.lang,
+            default: resolved.voice.default,
+            localService: resolved.voice.localService,
+          }
+        : null,
+    },
+    voices: voices.map(v => `${v.name} | ${v.lang} | default=${v.default} | local=${v.localService}`),
+  }
+}
+
+function logTtsDump(event: string): SpeechSynthesisDump {
+  const dump = getSpeechSynthesisDump()
+  console.debug(`[ClaimVoice:TTS] ${event}`, dump)
+  return dump
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const VOICE_QUESTIONS = [
@@ -186,6 +275,10 @@ const DEFAULT_BACKENDS: BackendStatus[] = [
   { label: 'Guard',           detail: '',          status: 'demo' },
   { label: 'Claude answer',   detail: 'mock',      status: 'demo' },
 ]
+
+function isTtsBackendLabel(label: string): boolean {
+  return label === 'Voice' || label === 'TTS' || label.startsWith('Voice:') || label.startsWith('TTS:')
+}
 
 // ── Examples drawer ───────────────────────────────────────────────────────────
 
@@ -238,6 +331,78 @@ export default function VoiceAssistantUI() {
   const [usedFallback, setUsedFallback] = useState(false)
   const [composerMode, setComposerMode] = useState<string>('mock')
   const [interimText,  setInterimText] = useState('')
+
+  // ── Browser voice discovery ──────────────────────────────────────────────────
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null)
+  const [voiceLabel,    setVoiceLabel]    = useState<string>('Voice unavailable')
+  const [isPreviewing,  setIsPreviewing]  = useState(false)
+  const speechPrimedRef = useRef(false)
+
+  const refreshVoices = useCallback(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    const all = window.speechSynthesis.getVoices()
+    for (const approved of APPROVED_BROWSER_VOICES) {
+      const match = all.find(v => v.name === approved.name)
+      if (match) {
+        setSelectedVoice(match)
+        setVoiceLabel(`Voice: ${match.name}`)
+        return
+      }
+    }
+    setSelectedVoice(null)
+    setVoiceLabel('Voice unavailable')
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    refreshVoices()
+    window.__claimVoiceTtsDump = () => logTtsDump('manual_dump')
+    window.speechSynthesis.addEventListener('voiceschanged', refreshVoices)
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', refreshVoices)
+      window.speechSynthesis.cancel()
+      delete window.__claimVoiceTtsDump
+    }
+  }, [refreshVoices])
+
+  const primeSpeechSynthesis = useCallback((reason: string) => {
+    if (speechPrimedRef.current) return
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    const utter = new SpeechSynthesisUtterance('ready')
+    utter.volume = 0
+    utter.rate = 1
+    utter.pitch = 1
+    utter.onstart = () => {
+      speechPrimedRef.current = true
+      console.debug('[ClaimVoice:TTS] speechSynthesis primed', { reason })
+    }
+    utter.onend = () => {
+      speechPrimedRef.current = true
+    }
+    utter.onerror = (event) => {
+      console.warn('[ClaimVoice:TTS] speechSynthesis prime failed', { reason, error: event.error })
+    }
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utter)
+    window.speechSynthesis.resume()
+  }, [])
+
+  // ── Preview voice ────────────────────────────────────────────────────────────
+  function handlePreviewVoice() {
+    if (isPreviewing) return
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    // Resolve at call-time — state may lag voiceschanged
+    const resolved = resolveBrowserVoice()
+    setIsPreviewing(true)
+    window.speechSynthesis.cancel()
+    const utter  = new SpeechSynthesisUtterance(VOICE_PREVIEW_PHRASE)
+    if (resolved.voice) utter.voice = resolved.voice
+    utter.rate   = 0.9
+    utter.pitch  = resolved.pitch
+    utter.onend  = () => setIsPreviewing(false)
+    utter.onerror = () => setIsPreviewing(false)
+    window.speechSynthesis.speak(utter)
+  }
 
   const controllerRef = useRef<VoiceTurnController | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -336,7 +501,7 @@ export default function VoiceAssistantUI() {
 
     ctrl.backendSuccess()
 
-    // ── TTS: try Google, fall back to browser ─────────────────────────────
+    // ── TTS: try Google Cloud, then approved browser voice, else skip ─────────
     const onTtsDone = () => {
       if (!isStale()) ctrl.cleanup('tts_done')
     }
@@ -345,24 +510,44 @@ export default function VoiceAssistantUI() {
     if (isStale()) return
 
     if (ttsData?.audioBase64) {
+      const ttsLabel =
+        ttsData.provider === 'google' ? 'TTS: Google'
+          : ttsData.provider === 'system' ? 'TTS: macOS'
+            : 'TTS: Audio'
+
+      console.debug('[ClaimVoice:TTS] backend_audio_selected', {
+        provider: ttsData.provider,
+        mimeType: ttsData.mimeType,
+        voiceName: ttsData.voiceName,
+        chars: answerText.length,
+      })
       setBackends(prev => prev.map(b =>
-        b.label === 'Voice'
-          ? { ...b, label: 'Voice: Google TTS', status: 'connected' as LedStatus, detail: ttsData.voiceName }
+        isTtsBackendLabel(b.label)
+          ? { ...b, label: ttsLabel, status: 'connected' as LedStatus, detail: ttsData.voiceName }
           : b
       ))
-      await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, onTtsDone)
+      await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, onTtsDone, ttsData.provider)
     } else {
+      // Resolve voice at speak-time — React state may be stale if voiceschanged fired late
+      const resolved = resolveBrowserVoice()
+      console.debug('[ClaimVoice:TTS] browser_voice_selected', {
+        label: resolved.label,
+        hasVoice: Boolean(resolved.voice),
+        chars: answerText.length,
+        dump: getSpeechSynthesisDump(),
+      })
       setBackends(prev => prev.map(b =>
-        b.label === 'Voice'
-          ? { ...b, label: 'Voice: Browser', status: 'degraded' as LedStatus, detail: 'speechSynthesis fallback' }
+        isTtsBackendLabel(b.label)
+          ? { ...b, label: 'TTS: Browser', status: 'connected' as LedStatus, detail: resolved.label }
           : b
       ))
-      ctrl.speakBrowser(answerText, onTtsDone)
+      ctrl.speakBrowser(answerText, resolved.voice, onTtsDone, { rate: 0.9, pitch: resolved.pitch })
     }
   }
 
   const handleMicClick = useCallback(() => {
     if (status === 'thinking' || status === 'finalizing_stt') return
+    primeSpeechSynthesis('mic_click')
 
     if (status === 'speaking') {
       // Interrupt TTS and start new turn
@@ -380,7 +565,7 @@ export default function VoiceAssistantUI() {
     const ctrl = newController()
     ctrl.startSTT()
     // If browser SR unavailable, ctrl is in listening state for demo fallback
-  }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [primeSpeechSynthesis, status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleReset() {
     setInterimText('')
@@ -394,6 +579,7 @@ export default function VoiceAssistantUI() {
   function handleSend() {
     const text = input.trim()
     if (!text || status === 'thinking' || status === 'finalizing_stt') return
+    primeSpeechSynthesis('typed_send')
     setInput('')
     // newController() calls cleanup() on any current controller (stops TTS/STT)
     newController()
@@ -529,6 +715,27 @@ export default function VoiceAssistantUI() {
               </div>
             </div>
 
+            {/* Voice selector + preview */}
+            <div className="px-4 py-2 shrink-0 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+              <span className={`text-[10px] truncate flex-1 ${
+                selectedVoice ? 'text-slate-500 dark:text-slate-400' : 'text-amber-500 dark:text-amber-400'
+              }`}>
+                {voiceLabel}
+              </span>
+              <button
+                onClick={handlePreviewVoice}
+                disabled={isPreviewing || status === 'speaking'}
+                title="Preview voice"
+                aria-label="Preview voice"
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {isPreviewing
+                  ? <Loader2 size={10} className="animate-spin" />
+                  : <Volume2 size={10} />}
+                Preview
+              </button>
+            </div>
+
             {/* Live speech preview */}
             <div className={`px-4 py-2 min-h-[52px] shrink-0 border-b border-slate-100 dark:border-slate-800 transition-all ${
               status === 'listening' ? 'bg-blue-50 dark:bg-blue-900/10' : ''
@@ -553,6 +760,7 @@ export default function VoiceAssistantUI() {
               <ExamplesDrawer
                 onPick={q => {
                   if (status === 'ready' || status === 'error_recoverable') {
+                    primeSpeechSynthesis('demo_question')
                     const ctrl = newController()
                     controllerRef.current = ctrl
                     void runPipeline(q, 'demo')

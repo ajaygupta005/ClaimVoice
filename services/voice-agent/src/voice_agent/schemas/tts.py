@@ -64,7 +64,7 @@ class TtsSynthesizeRequest(BaseModel):
 class TtsSynthesizeResponse(BaseModel):
     """Unified response — always returned as 200 so the browser can branch on ok."""
     ok: bool
-    provider: Literal["google", "browser"]
+    provider: Literal["google", "browser", "system"]
     voiceName: str = ""
     mimeType: str = ""
     audioBase64: str = ""

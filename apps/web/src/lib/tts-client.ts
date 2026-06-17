@@ -1,6 +1,6 @@
 /**
- * TTS client — tries Google TTS backend, falls back to null so the caller
- * can use browser speechSynthesis. The frontend never holds API keys.
+ * TTS client — asks the voice-agent backend for playable audio. The backend
+ * may use Google Cloud TTS or local system TTS; the frontend never holds API keys.
  */
 
 export interface TtsSynthesizeRequest {
@@ -12,7 +12,7 @@ export interface TtsSynthesizeRequest {
 /** Unified backend response — always 200, branch on ok. */
 export interface TtsSynthesizeResponse {
   ok: boolean
-  provider: 'google' | 'browser'
+  provider: 'google' | 'browser' | 'system'
   voiceName: string
   mimeType: string
   audioBase64: string
@@ -21,7 +21,7 @@ export interface TtsSynthesizeResponse {
 }
 
 /**
- * Returns the response when Google audio is available (ok=true + audioBase64),
+ * Returns the response when backend audio is available (ok=true + audioBase64),
  * or null when the backend says ok=false or is unreachable.
  */
 export async function synthesizeSpeech(
@@ -32,7 +32,7 @@ export async function synthesizeSpeech(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(25_000),
     })
     if (!res.ok) return null
     const data = await res.json() as TtsSynthesizeResponse

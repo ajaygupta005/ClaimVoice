@@ -14,12 +14,33 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_tts_returns_unavailable_when_provider_is_browser(client: TestClient) -> None:
-    """Default config has tts_provider=browser — must return ok=False with fallback=browser."""
-    res = client.post("/api/v1/tts/synthesize", json={"text": "Hello world"})
+def test_tts_browser_provider_uses_system_audio_when_available(client: TestClient) -> None:
+    """Default browser provider should still return server audio when local TTS exists."""
+    with patch(
+        "voice_agent.api.v1.tts_synthesize._system_synthesize",
+        return_value=("UklGRg==", "Samantha", "audio/wav"),
+    ):
+        res = client.post("/api/v1/tts/synthesize", json={"text": "Hello world"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["provider"] == "system"
+    assert data["voiceName"] == "Samantha"
+    assert data["mimeType"] == "audio/wav"
+    assert data["audioBase64"] == "UklGRg=="
+
+
+def test_tts_returns_unavailable_when_system_tts_fails(client: TestClient) -> None:
+    """If server-side TTS is unavailable, keep returning 200 with browser fallback."""
+    with patch(
+        "voice_agent.api.v1.tts_synthesize._system_synthesize",
+        side_effect=RuntimeError("system_tts_say_unavailable"),
+    ):
+        res = client.post("/api/v1/tts/synthesize", json={"text": "Hello world"})
     assert res.status_code == 200
     data = res.json()
     assert data["ok"] is False
+    assert data["provider"] == "system"
     assert data["fallback"] == "browser"
 
 
@@ -39,17 +60,23 @@ def test_tts_accepts_valid_request(client: TestClient) -> None:
 
 
 def test_tts_google_error_returns_unavailable(client: TestClient) -> None:
-    """When provider=google but Google call fails, still return 200 with ok=False."""
-    with patch("voice_agent.core.config.settings") as mock_settings:
+    """When provider=google fails, system TTS should be tried before giving up."""
+    with (
+        patch("voice_agent.api.v1.tts_synthesize.settings") as mock_settings,
+        patch("voice_agent.api.v1.tts_synthesize._google_synthesize", side_effect=RuntimeError("no_google")),
+        patch(
+            "voice_agent.api.v1.tts_synthesize._system_synthesize",
+            return_value=("UklGRg==", "Samantha", "audio/wav"),
+        ),
+    ):
         mock_settings.voice_agent_tts_provider = "google"
         mock_settings.google_tts_language_code = "en-US"
         mock_settings.google_tts_voice_name = "en-US-Chirp3-HD-Aoede"
-        # _google_synthesize will fail because google.cloud.texttospeech is not installed
         res = client.post("/api/v1/tts/synthesize", json={"text": "Hello"})
-        assert res.status_code == 200
-        data = res.json()
-        # ok=False (Google not configured/failed) or ok=True with audio — both valid
-        assert "ok" in data
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["provider"] == "system"
 
 
 def test_tts_does_not_affect_agent_respond(client: TestClient) -> None:
