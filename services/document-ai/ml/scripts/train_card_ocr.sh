@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# train_card_ocr.sh
+
+cd "$(dirname "$0")/.."
+uv run python -m models.card_ocr_layoutlm.train

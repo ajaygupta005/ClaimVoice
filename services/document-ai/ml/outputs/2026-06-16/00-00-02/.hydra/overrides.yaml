@@ -1,0 +1,2 @@
+- training.epochs=1
+- training.batch_size=2

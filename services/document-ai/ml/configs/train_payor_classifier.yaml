@@ -1,8 +1,27 @@
-defaults: [_self_]
+defaults:
+  - _self_
+
+# Prevent Hydra from changing the working directory, which would break
+# relative paths resolved from __file__ in the training script.
+hydra:
+  job:
+    chdir: false
+
 model:
   name: resnet50
   num_classes: 8
+  pretrained: true           # load ImageNet weights before fine-tuning
+
+data:
+  val_fraction: 0.2          # fraction of each payor class held out for validation
+  num_workers: 4             # DataLoader worker processes (set 0 to disable multiprocessing)
+  seed: 42                   # split + shuffle seed
+
 training:
   epochs: 20
   batch_size: 32
-  lr: 1e-4
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  patience: 5                # early-stop after this many epochs without val_acc improvement
+  optimizer: adamw           # "adamw" or "sgd"
+  lr_scheduler: cosine       # "cosine" or "plateau"

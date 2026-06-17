@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# train_sbc_parser.sh
+
+cd "$(dirname "$0")/.."
+uv run python -m models.sbc_parser_layoutlm.train
