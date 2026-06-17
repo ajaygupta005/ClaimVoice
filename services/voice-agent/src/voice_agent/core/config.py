@@ -14,12 +14,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
 
-    # TTS provider: "browser" means no server-side TTS; "google" uses Google Cloud TTS.
-    voice_agent_tts_provider: Literal["browser", "google"] = "browser"
+    # TTS provider: "browser" falls back to local system TTS when available;
+    # "system" forces local OS TTS; "google" uses Google Cloud TTS first.
+    voice_agent_tts_provider: Literal["browser", "google", "system"] = "browser"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Aoede"
     google_tts_language_code: str = "en-US"
     # Google Application Credentials path (optional — falls back to ADC)
     google_application_credentials: str = ""
+    system_tts_voice_name: str = "Samantha"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

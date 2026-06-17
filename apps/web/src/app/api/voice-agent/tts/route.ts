@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(25_000),
     })
     if (!upstream.ok) {
       return NextResponse.json({ error: 'upstream_error' }, { status: upstream.status })

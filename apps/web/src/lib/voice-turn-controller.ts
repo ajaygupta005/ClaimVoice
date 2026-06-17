@@ -13,6 +13,7 @@ const SILENCE_AFTER_MS    = 2_000
 const BACKEND_TIMEOUT_MS  = 20_000
 const MAX_INTERIM_CHARS   = 500
 const TTS_EXTRA_BUFFER_MS = 5_000
+const WHOLE_TURN_MAX_MS   = 30_000
 
 export type TurnState =
   | 'ready'
@@ -48,6 +49,10 @@ export class VoiceTurnController {
   private silenceTimer: ReturnType<typeof setTimeout> | null = null
   private listeningTimer: ReturnType<typeof setTimeout> | null = null
   private ttsTimer: ReturnType<typeof setTimeout> | null = null
+  private wholeTurnTimer: ReturnType<typeof setTimeout> | null = null
+  private speechUtterance: SpeechSynthesisUtterance | null = null
+  private speechResumeTimer: ReturnType<typeof setInterval> | null = null
+  private cleanedUp = false
   readonly diag: TurnDiagnostics
 
   constructor(
@@ -65,6 +70,16 @@ export class VoiceTurnController {
       ttsProvider: null, ttsStart: null, ttsEnd: null, ttsError: null,
       cleanupReason: null,
     }
+    this.wholeTurnTimer = setTimeout(() => {
+      if (this._state === 'listening' || this._state === 'finalizing_stt') {
+        this.diag.sttError ??= 'whole_turn_timeout'
+      } else if (this._state === 'thinking') {
+        this.diag.backendError ??= 'whole_turn_timeout'
+      } else if (this._state === 'speaking') {
+        this.diag.ttsError ??= 'whole_turn_timeout'
+      }
+      this.cleanup('whole_turn_timeout')
+    }, WHOLE_TURN_MAX_MS)
   }
 
   get state(): TurnState { return this._state }
@@ -101,6 +116,7 @@ export class VoiceTurnController {
     let hasSpeech = false
 
     rec.onresult = (event: any) => {
+      if (this.cleanedUp) return
       let interim = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const r = event.results[i]
@@ -121,6 +137,7 @@ export class VoiceTurnController {
     }
 
     rec.onend = () => {
+      if (this.cleanedUp) return
       this.diag.sttEnd = Date.now()
       this.clearListeningTimer()
       this.clearSilenceTimer()
@@ -136,6 +153,7 @@ export class VoiceTurnController {
     }
 
     rec.onerror = (e: any) => {
+      if (this.cleanedUp) return
       const errName: string = (e as any).error ?? 'unknown'
       this.diag.sttError = errName
       this.clearListeningTimer()
@@ -177,6 +195,7 @@ export class VoiceTurnController {
     this.diag.backendStart = Date.now()
     this.transition('thinking')
     const timer = setTimeout(() => {
+      if (this.cleanedUp) return
       this.abortController?.abort()
       this.diag.backendError = 'timeout'
     }, BACKEND_TIMEOUT_MS)
@@ -198,8 +217,13 @@ export class VoiceTurnController {
   // ── TTS ───────────────────────────────────────────────────────────────────────
 
   /** Play audio from a base64 string. Calls onDone when finished or on error. */
-  async speakAudio(audioBase64: string, mimeType: string, onDone: () => void) {
-    this.diag.ttsProvider = 'google'
+  async speakAudio(
+    audioBase64: string,
+    mimeType: string,
+    onDone: () => void,
+    provider = 'audio',
+  ) {
+    this.diag.ttsProvider = provider
     this.diag.ttsStart    = Date.now()
 
     const binary = atob(audioBase64)
@@ -212,6 +236,7 @@ export class VoiceTurnController {
     this.audioEl = el
 
     this.ttsTimer = setTimeout(() => {
+      if (this.cleanedUp) return
       el.pause()
       this.diag.ttsError = 'timeout'
       URL.revokeObjectURL(url)
@@ -219,12 +244,14 @@ export class VoiceTurnController {
     }, 30_000 + TTS_EXTRA_BUFFER_MS)
 
     el.onended = () => {
+      if (this.cleanedUp) return
       this.clearTtsTimer()
       this.diag.ttsEnd = Date.now()
       URL.revokeObjectURL(url)
       onDone()
     }
     el.onerror = () => {
+      if (this.cleanedUp) return
       this.clearTtsTimer()
       this.diag.ttsError = 'audio_error'
       URL.revokeObjectURL(url)
@@ -233,6 +260,7 @@ export class VoiceTurnController {
     try {
       await el.play()
     } catch {
+      if (this.cleanedUp) return
       this.clearTtsTimer()
       this.diag.ttsError = 'play_rejected'
       URL.revokeObjectURL(url)
@@ -240,60 +268,102 @@ export class VoiceTurnController {
     }
   }
 
-  /** Browser speechSynthesis fallback. Calls onDone when finished or on error. */
-  speakBrowser(text: string, onDone: () => void) {
+  /**
+   * Browser speechSynthesis with a caller-supplied approved voice.
+   * Pass `null` to use the browser default (not recommended — caller should guard).
+   * Calls onDone when finished, errored, or timed out.
+   */
+  speakBrowser(
+    text: string,
+    voice: SpeechSynthesisVoice | null,
+    onDone: () => void,
+    opts?: { rate?: number; pitch?: number },
+  ) {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       this.diag.ttsError = 'speechSynthesis_unavailable'
+      console.warn('[ClaimVoice:TTS] speechSynthesis unavailable')
       onDone()
       return
     }
-    this.diag.ttsProvider = 'browser'
-    this.diag.ttsStart    = Date.now()
+    this.diag.ttsStart = Date.now()
     window.speechSynthesis.cancel()
 
     const utter = new SpeechSynthesisUtterance(text)
-    utter.rate  = 0.92
+    this.speechUtterance = utter
+    utter.rate = opts?.rate ?? 0.92
+    utter.pitch = opts?.pitch ?? 1
+    utter.volume = 1
 
-    // Pick best available English voice: prefer Neural/Natural/Premium/Enhanced,
-    // then en-US, then any English. Falls back to browser default if none found.
+    // Use the earlier, simpler browser strategy: prefer natural local/OS English
+    // voices, then en-US, then any English voice. The caller-provided voice is
+    // only a final fallback because specific Google browser voices can queue
+    // without producing audible playback on some Chrome/macOS setups.
     const voices = window.speechSynthesis.getVoices()
-    if (voices.length > 0) {
-      const preferred = voices.find(v =>
-        v.lang.startsWith('en') &&
-        /neural|natural|premium|enhanced|samantha|karen|daniel/i.test(v.name)
-      ) ?? voices.find(v => v.lang === 'en-US')
-        ?? voices.find(v => v.lang.startsWith('en'))
-      if (preferred) utter.voice = preferred
-    }
+    const preferred = voices.find(v =>
+      v.lang.startsWith('en') &&
+      /neural|natural|premium|enhanced|samantha|karen|daniel/i.test(v.name)
+    ) ?? voices.find(v => v.lang === 'en-US')
+      ?? voices.find(v => v.lang.startsWith('en'))
+      ?? voice
+    if (preferred) utter.voice = preferred
+    this.diag.ttsProvider = preferred?.name ?? 'browser'
+    console.debug('[ClaimVoice:TTS] speakBrowser simple', {
+      provider: this.diag.ttsProvider,
+      textLength: text.length,
+      voicesCount: voices.length,
+      speaking: window.speechSynthesis.speaking,
+      pending: window.speechSynthesis.pending,
+      paused: window.speechSynthesis.paused,
+    })
 
     let done = false
     const finish = (reason: string) => {
+      if (this.cleanedUp) return
       if (done) return
       done = true
+      this.clearSpeechResumeTimer()
+      this.speechUtterance = null
       this.clearTtsTimer()
       if (reason !== 'ended') this.diag.ttsError = reason
       else this.diag.ttsEnd = Date.now()
+      console.debug('[ClaimVoice:TTS] speakBrowser finished', {
+        reason,
+        provider: this.diag.ttsProvider,
+        ttsError: this.diag.ttsError,
+        speaking: window.speechSynthesis.speaking,
+        pending: window.speechSynthesis.pending,
+        paused: window.speechSynthesis.paused,
+      })
       onDone()
     }
 
-    // Watchdog: ~300ms per char at 0.95 rate + buffer. Chrome onend is unreliable
-    // so this watchdog is the primary recovery path for stuck playback.
     const estimatedMs = Math.max(text.length * 300, 3000) + TTS_EXTRA_BUFFER_MS
     this.ttsTimer = setTimeout(() => {
       window.speechSynthesis.cancel()
       finish('timeout')
     }, estimatedMs)
 
-    utter.onend   = () => finish('ended')
-    utter.onerror = () => finish('playback_error')
+    utter.onend = () => finish('ended')
+    utter.onerror = (event) => {
+      if (this.cleanedUp && event.error === 'canceled') return
+      console.warn('[ClaimVoice:TTS] utterance error', { error: event.error })
+      finish('playback_error')
+    }
     window.speechSynthesis.speak(utter)
+    window.speechSynthesis.resume()
+    this.speechResumeTimer = setInterval(() => {
+      if (done || this.cleanedUp) return
+      window.speechSynthesis.resume()
+    }, 1_000)
   }
 
   stopTTS() {
     this.clearTtsTimer()
+    this.clearSpeechResumeTimer()
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
+    this.speechUtterance = null
     if (this.audioEl) {
       this.audioEl.pause()
       this.audioEl = null
@@ -304,7 +374,10 @@ export class VoiceTurnController {
 
   /** Release all resources and transition back to ready. Safe to call multiple times. */
   cleanup(reason: string) {
+    if (this.cleanedUp) return
+    this.cleanedUp = true
     this.diag.cleanupReason = reason
+    this.clearWholeTurnTimer()
     this.clearListeningTimer()
     this.clearSilenceTimer()
     this.clearTtsTimer()
@@ -336,5 +409,11 @@ export class VoiceTurnController {
   }
   private clearTtsTimer() {
     if (this.ttsTimer) { clearTimeout(this.ttsTimer); this.ttsTimer = null }
+  }
+  private clearSpeechResumeTimer() {
+    if (this.speechResumeTimer) { clearInterval(this.speechResumeTimer); this.speechResumeTimer = null }
+  }
+  private clearWholeTurnTimer() {
+    if (this.wholeTurnTimer) { clearTimeout(this.wholeTurnTimer); this.wholeTurnTimer = null }
   }
 }
