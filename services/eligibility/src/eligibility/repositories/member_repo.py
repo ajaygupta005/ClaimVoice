@@ -116,6 +116,61 @@ def get_coverage(
     }
 
 
+def get_cost_inputs(
+    session: Session,
+    member_id: str,
+    service: Optional[str] = None,
+    network_type: str = "In Network",
+) -> Optional[dict[str, Any]]:
+    """Inputs for cost estimation: member YTD + plan deductible/OOP + optional benefit.
+
+    Returns {member, plan_deductible_cents, plan_oop_cents, benefit|None} or None if
+    the member does not exist. ``benefit`` is populated only when ``service`` is given.
+    """
+    member = session.execute(
+        text("""
+            SELECT member_id, plan_id, eligibility_status, deductible_ytd_cents, oop_ytd_cents
+            FROM members WHERE member_id = :mid
+        """),
+        {"mid": member_id},
+    ).mappings().first()
+    if member is None:
+        return None
+
+    pid = str(member["plan_id"])
+    levels = session.execute(
+        text("""
+            SELECT MAX(individual_deductible_cents) AS ded,
+                   MAX(out_of_pocket_max_cents) AS oop
+            FROM plan_benefits WHERE plan_id = :pid AND network_type = :net
+        """),
+        {"pid": pid, "net": network_type},
+    ).mappings().first()
+
+    benefit = None
+    if service:
+        pattern = f"%{service}%"
+        benefit = session.execute(
+            text("""
+                SELECT benefit_name, service_category, copay_amount_cents,
+                       coinsurance_percentage, requires_prior_auth
+                FROM plan_benefits
+                WHERE plan_id = :pid AND network_type = :net
+                  AND (benefit_name ILIKE :pat OR service_category ILIKE :pat)
+                ORDER BY (CASE WHEN benefit_name ILIKE :pat THEN 0 ELSE 1 END), benefit_name
+                LIMIT 1
+            """),
+            {"pid": pid, "net": network_type, "pat": pattern},
+        ).mappings().first()
+
+    return {
+        "member": dict(member),
+        "plan_deductible_cents": levels["ded"] if levels else None,
+        "plan_oop_cents": levels["oop"] if levels else None,
+        "benefit": dict(benefit) if benefit else None,
+    }
+
+
 def search_formulary(
     session: Session,
     plan_id: uuid.UUID,
