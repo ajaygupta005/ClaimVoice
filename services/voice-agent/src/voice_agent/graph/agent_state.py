@@ -16,6 +16,9 @@ class AgentState(TypedDict, total=False):
     member_id: str
     member_verified: bool
 
+    # ── conversation memory ─────────────────────────────────────────────────────
+    history: list[dict[str, Any]]  # prior [{question, answer}] turns this session
+
     # ── orchestration ─────────────────────────────────────────────────────────
     intent: str           # coverage | cost | provider | formulary | escalate
     tool_name: str        # check_coverage | estimate_cost | find_provider |
