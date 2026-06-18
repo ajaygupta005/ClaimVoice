@@ -32,7 +32,7 @@ if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Crea
 
 # ---- [1] Provision / start the database --------------------------------------
 if ($ExistingDb) {
-    Write-Host "`n[1/6] reusing an existing Postgres (skipping image pull + compose up)"
+    Write-Host "`n[1/8] reusing an existing Postgres (skipping image pull + compose up)"
     if ($SentinelContainer) {
         Write-Host "  ensuring isolated 'claimvoice' role + database exist in '$SentinelContainer'"
         Write-Host "  (the host app's own database is NOT touched)"
@@ -45,7 +45,7 @@ if ($ExistingDb) {
     }
 } else {
     # Docker Hub's CDN can drop blob downloads mid-transfer; `docker pull` is resumable.
-    Write-Host "`n[1/6] ensuring postgis image is present (retrying flaky Docker Hub pulls)"
+    Write-Host "`n[1/8] ensuring postgis image is present (retrying flaky Docker Hub pulls)"
     $haveImage = $false
     foreach ($i in 1..20) {
         docker image inspect postgis/postgis:16-3.4 *> $null
@@ -69,25 +69,28 @@ if ($ExistingDb) {
     if (-not $ready) { throw "Postgres did not become ready in 40s" }
 }
 
-# ---- [2..6] Migrate + seed (common to both modes) ----------------------------
-Write-Host "`n[2/6] applying schema (alembic upgrade head)"
+# ---- [2..8] Migrate + seed (common to both modes) ----------------------------
+Write-Host "`n[2/8] applying schema (alembic upgrade head)"
 Push-Location (Join-Path $root "services\eligibility")
 uv run --no-project --python 3.12 --with alembic --with sqlalchemy --with "psycopg[binary]" alembic upgrade head
 Pop-Location
 
-Write-Host "`n[3/6] generating NPPES sample"
+Write-Host "`n[3/8] generating NPPES sample"
 uv run --no-project --python 3.12 python scripts/generate_nppes_sample.py
-Write-Host "[4/6] loading providers from the sample (download bypassed)"
+Write-Host "[4/8] loading providers from the sample (download bypassed)"
 uv run --no-project --python 3.12 --with hydra-core --with omegaconf --with "psycopg[binary]" `
     python data/ingest/npi_ingest.py npi.source_csv=data/raw/nppes_sample.csv
 
-Write-Host "`n[5/7] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS"
+Write-Host "[5/8] enriching providers (specialty + quality + accepting-new from taxonomy)"
+uv run --no-project --python 3.12 --with "psycopg[binary]" python data/ingest/enrich_providers.py
+
+Write-Host "`n[6/8] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS"
 uv run --no-project --python 3.12 --with "psycopg[binary]" python data/ingest/seed_dev.py
 
-Write-Host "[6/7] seeding 30 test members + X12 271 stubs"
+Write-Host "[7/8] seeding 30 test members + X12 271 stubs"
 uv run --no-project --python 3.12 --with faker --with "psycopg[binary]" python data/ingest/seed_test_members.py
 
-Write-Host "[7/7] seeding canonical demo member + plan (golden values for agent eval)"
+Write-Host "[8/8] seeding canonical demo member + plan (golden values for agent eval)"
 uv run --no-project --python 3.12 --with "psycopg[binary]" python data/ingest/seed_demo_member.py
 
 # ---- Report row counts (via DATABASE_URL, works in both modes) ----------------

@@ -33,3 +33,15 @@ class ProviderOut(BaseModel):
 class ProviderSearchResponse(BaseModel):
     total: int
     providers: list[ProviderOut]
+
+
+class ProviderNearItem(ProviderOut):
+    distanceKm: float
+    inNetwork: bool
+    specialty: Optional[str] = None
+
+
+class ProviderNearResponse(BaseModel):
+    total: int
+    query: dict
+    providers: list[ProviderNearItem]

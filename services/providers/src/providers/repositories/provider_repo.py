@@ -91,3 +91,37 @@ def get_provider_by_npi(session: Session, npi: str) -> Optional[dict[str, Any]]:
         {"npi": npi},
     ).mappings().first()
     return dict(row) if row else None
+
+
+def near_candidates(session: Session, plan_id: Optional[Any] = None) -> list[dict[str, Any]]:
+    """Candidate providers (with location WKT + in-network flag) for app-side geo ranking.
+
+    ``in_network`` is true iff the provider is in-network for ``plan_id``; with no
+    plan_id the flag is always false (in-network requires a plan). Geo distance and
+    specialty/radius filtering happen in services/geo_search (no PostGIS on dev DB).
+    """
+    rows = session.execute(
+        text(f"""
+            SELECT {_SELECT_COLS}, location,
+                   EXISTS(
+                       SELECT 1 FROM in_network i
+                       WHERE i.provider_npi = providers.npi
+                         AND i.plan_id = CAST(:pid AS uuid)
+                   ) AS in_network
+            FROM providers
+            WHERE location IS NOT NULL
+        """),
+        {"pid": str(plan_id) if plan_id else None},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_providers_by_npis(session: Session, npis: list[str]) -> list[dict[str, Any]]:
+    """Return provider rows for a list of NPIs (missing NPIs are simply absent)."""
+    if not npis:
+        return []
+    rows = session.execute(
+        text(f"SELECT {_SELECT_COLS} FROM providers WHERE npi = ANY(:npis)"),
+        {"npis": npis},
+    ).mappings().all()
+    return [dict(r) for r in rows]
