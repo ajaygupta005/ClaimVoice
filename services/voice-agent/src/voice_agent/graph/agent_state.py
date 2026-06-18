@@ -21,7 +21,8 @@ class AgentState(TypedDict, total=False):
     tool_name: str        # check_coverage | estimate_cost | find_provider |
                           #   check_formulary | escalate_to_human
     tool_args: dict[str, Any]
-    tool_result: str      # raw result string from the mock tool
+    tool_result: str      # raw result string from the tool
+    tool_facts: list[str]  # grounding facts the hallucination guard verifies against
 
     # ── answer ────────────────────────────────────────────────────────────────
     answer_text: str
