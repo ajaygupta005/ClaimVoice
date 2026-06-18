@@ -21,10 +21,17 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Create all core tables."""
     
-    # Enable PostGIS extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
-    op.execute("CREATE EXTENSION IF NOT EXISTS pgvector")
-    
+    # PostGIS is enabled only when available, so this migration also runs on a plain
+    # Postgres instance (e.g. reusing another app's DB for dev). The providers.location
+    # column adapts below: geography(POINT) when PostGIS is present, else text (WKT).
+    # pgvector ("vector") is intentionally deferred to the WS-4 SBC-RAG migration.
+    bind = op.get_bind()
+    has_postgis = bind.execute(
+        sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'postgis'")
+    ).first() is not None
+    if has_postgis:
+        op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+
     # Create members table
     op.create_table(
         'members',
@@ -64,7 +71,8 @@ def upgrade() -> None:
         sa.Column('practice_location_state', sa.CHAR(2), nullable=True),
         sa.Column('practice_location_zip', sa.String(5), nullable=True),
         sa.Column('practice_location_phone', sa.String(), nullable=True),
-        sa.Column('location', postgresql.GEOGRAPHY('POINT', 4326), nullable=True),
+        # location (PostGIS GEOGRAPHY) is added via raw SQL right after this table —
+        # SQLAlchemy core has no GEOGRAPHY type and we avoid a GeoAlchemy2 dependency.
         sa.Column('accepting_new_patients', sa.Boolean(), nullable=True),
         sa.Column('quality_rating', sa.Numeric(3, 1), nullable=True),
         sa.Column('hospital_name', sa.String(), nullable=True),
@@ -75,7 +83,13 @@ def upgrade() -> None:
         sa.UniqueConstraint('npi'),
         sa.CheckConstraint('quality_rating >= 1 AND quality_rating <= 5', name='valid_stars')
     )
-    op.create_index('idx_providers_location', 'providers', ['location'], postgresql_using='gist')
+    if has_postgis:
+        op.execute("ALTER TABLE providers ADD COLUMN location geography(POINT, 4326)")
+        op.create_index('idx_providers_location', 'providers', ['location'], postgresql_using='gist')
+    else:
+        # No PostGIS: store WKT as text so npi_ingest's POINT(...) insert still works.
+        # Geo-distance (ST_DWithin) is unavailable until recreated on a PostGIS server.
+        op.execute("ALTER TABLE providers ADD COLUMN location text")
     op.create_index('idx_providers_npi', 'providers', ['npi'])
     op.create_index('idx_providers_taxonomy', 'providers', ['specialty_codes'], postgresql_using='gin')
 
@@ -223,5 +237,4 @@ def downgrade() -> None:
     op.drop_table('members')
     op.drop_table('providers')
     op.drop_table('plans')
-    op.execute("DROP EXTENSION IF EXISTS pgvector")
     op.execute("DROP EXTENSION IF EXISTS postgis")
