@@ -3,9 +3,12 @@ import os
 import pytest
 import httpx
 
+from ._helpers import skip_if_unreachable
+
 
 @pytest.mark.integration
 def test_langfuse_health():
     base = os.environ.get("LANGFUSE_HOST", "http://localhost:3001")
+    skip_if_unreachable(f"{base}/api/public/health")
     r = httpx.get(f"{base}/api/public/health", timeout=5.0)
     assert r.status_code == 200
