@@ -90,5 +90,44 @@
     "expected_npis": ["C1", "C2"],
     "expected_top_k": ["C1"],
     "notes": "Substring match: 'primary care' in 'Primary Care Physician'. C1 closer."
+  },
+  {
+    "id": "orthopedics-combined-filters",
+    "query": {
+      "specialty": "orthopedics",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 20,
+      "in_network_only": true,
+      "accepting_new_only": true
+    },
+    "candidates": [
+      {"npi": "O1", "specialty": "Orthopedics", "lat": 40.7600, "lng": -73.9850, "in_network": true, "accepting_new": true, "quality_rating": 4},
+      {"npi": "O2", "specialty": "Orthopedics", "lat": 40.7590, "lng": -73.9858, "in_network": true, "accepting_new": false, "quality_rating": 5},
+      {"npi": "O3", "specialty": "Orthopedics", "lat": 40.7500, "lng": -73.9900, "in_network": false, "accepting_new": true, "quality_rating": 5},
+      {"npi": "O4", "specialty": "Orthopedics", "lat": 40.7300, "lng": -73.9950, "in_network": true, "accepting_new": true, "quality_rating": 3}
+    ],
+    "expected_npis": ["O1", "O4"],
+    "expected_top_k": ["O1"],
+    "notes": "O2 filtered (not accepting new), O3 filtered (out of network). O1 closer than O4."
+  },
+  {
+    "id": "obgyn-multi-result-order",
+    "query": {
+      "specialty": "obstetrics",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 50,
+      "in_network_only": false,
+      "accepting_new_only": false
+    },
+    "candidates": [
+      {"npi": "B1", "specialty": "Obstetrics and Gynecology", "lat": 40.7600, "lng": -73.9850, "in_network": true, "accepting_new": true, "quality_rating": 3},
+      {"npi": "B2", "specialty": "Obstetrics and Gynecology", "lat": 40.7000, "lng": -74.0100, "in_network": true, "accepting_new": true, "quality_rating": 5},
+      {"npi": "B3", "specialty": "Obstetrics and Gynecology", "lat": 40.8500, "lng": -73.9000, "in_network": true, "accepting_new": true, "quality_rating": 5}
+    ],
+    "expected_npis": ["B1", "B2", "B3"],
+    "expected_top_k": ["B1", "B2"],
+    "notes": "Substring 'obstetrics' matches the full specialty. Ordered by distance."
   }
 ]
