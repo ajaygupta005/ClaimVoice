@@ -1,0 +1,94 @@
+[
+  {
+    "id": "cardiology-in-network-near",
+    "query": {
+      "specialty": "cardiology",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 10,
+      "in_network_only": true,
+      "accepting_new_only": false
+    },
+    "candidates": [
+      {"npi": "N1", "specialty": "Cardiology", "lat": 40.7600, "lng": -73.9850, "in_network": true, "accepting_new": true, "quality_rating": 4},
+      {"npi": "N2", "specialty": "Cardiology", "lat": 40.7000, "lng": -74.0100, "in_network": true, "accepting_new": true, "quality_rating": 5},
+      {"npi": "N3", "specialty": "Cardiology", "lat": 40.7200, "lng": -73.9900, "in_network": false, "accepting_new": true, "quality_rating": 5},
+      {"npi": "N4", "specialty": "Dermatology", "lat": 40.7590, "lng": -73.9860, "in_network": true, "accepting_new": true, "quality_rating": 5}
+    ],
+    "expected_npis": ["N1", "N2"],
+    "expected_top_k": ["N1"],
+    "notes": "N3 filtered (out of network), N4 filtered (wrong specialty). N1 closer than N2."
+  },
+  {
+    "id": "dermatology-quality-tiebreak",
+    "query": {
+      "specialty": "dermatology",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 25,
+      "in_network_only": false,
+      "accepting_new_only": true
+    },
+    "candidates": [
+      {"npi": "D1", "specialty": "Dermatology", "lat": 40.7700, "lng": -73.9855, "in_network": true, "accepting_new": false, "quality_rating": 5},
+      {"npi": "D2", "specialty": "Dermatology", "lat": 40.7700, "lng": -73.9855, "in_network": true, "accepting_new": true, "quality_rating": 3},
+      {"npi": "D3", "specialty": "Dermatology", "lat": 40.7700, "lng": -73.9855, "in_network": true, "accepting_new": true, "quality_rating": 5}
+    ],
+    "expected_npis": ["D3", "D2"],
+    "expected_top_k": ["D3"],
+    "notes": "D1 filtered (not accepting new). D2/D3 same distance, quality desc tiebreak puts D3 first."
+  },
+  {
+    "id": "pediatrics-radius-filter",
+    "query": {
+      "specialty": "pediatrics",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 10,
+      "in_network_only": false,
+      "accepting_new_only": false
+    },
+    "candidates": [
+      {"npi": "P1", "specialty": "Pediatrics", "lat": 40.7700, "lng": -73.9855, "in_network": true, "accepting_new": true, "quality_rating": 4},
+      {"npi": "P2", "specialty": "Pediatrics", "lat": 41.0500, "lng": -73.9855, "in_network": true, "accepting_new": true, "quality_rating": 5}
+    ],
+    "expected_npis": ["P1"],
+    "expected_top_k": ["P1"],
+    "notes": "P2 is ~32 km away, outside the 10 km radius."
+  },
+  {
+    "id": "no-in-network-match",
+    "query": {
+      "specialty": "cardiology",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 25,
+      "in_network_only": true,
+      "accepting_new_only": false
+    },
+    "candidates": [
+      {"npi": "X1", "specialty": "Cardiology", "lat": 40.7600, "lng": -73.9850, "in_network": false, "accepting_new": true, "quality_rating": 5}
+    ],
+    "expected_npis": [],
+    "expected_top_k": [],
+    "notes": "Only candidate is out of network; in_network_only filters it out."
+  },
+  {
+    "id": "primary-care-substring",
+    "query": {
+      "specialty": "primary care",
+      "lat": 40.7580,
+      "lng": -73.9855,
+      "radius_km": 15,
+      "in_network_only": false,
+      "accepting_new_only": false
+    },
+    "candidates": [
+      {"npi": "C1", "specialty": "Primary Care Physician", "lat": 40.7610, "lng": -73.9840, "in_network": true, "accepting_new": true, "quality_rating": 4},
+      {"npi": "C2", "specialty": "Primary Care Physician", "lat": 40.7400, "lng": -73.9900, "in_network": true, "accepting_new": true, "quality_rating": 3}
+    ],
+    "expected_npis": ["C1", "C2"],
+    "expected_top_k": ["C1"],
+    "notes": "Substring match: 'primary care' in 'Primary Care Physician'. C1 closer."
+  }
+]

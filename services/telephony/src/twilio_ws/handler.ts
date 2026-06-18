@@ -1,19 +1,56 @@
 // WebSocket handler for Twilio Media Streams. Bridges audio to the voice agent.
 
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import type { WebSocket as WS } from 'ws'
+import type { WebSocket } from 'ws'
 import type { TwilioFrame, StreamState } from './types.js'
 import { ulawToPcm16, pcm16ToUlaw, resamplePcm16 } from '../audio_codec/index.js'
 import { openBridge, type VoiceAgentBridge } from './voice_agent_bridge.js'
 import { loadConfig } from '../lib/config.js'
+import {
+  callsTotal,
+  callDurationSeconds,
+  activeCalls,
+  audioBytesTotal,
+} from '../lib/metrics.js'
 
 const activeStreams = new Map<string, StreamState>()
 const { VOICE_AGENT_WS_URL } = loadConfig()
 
 export function registerMediaStreamHandler(app: FastifyInstance) {
-  app.get('/media-stream', { websocket: true }, (connection, req: FastifyRequest) => {
+  // @fastify/websocket v11: the handler receives the raw ws WebSocket directly.
+  app.get('/media-stream', { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
     let state: StreamState | null = null
     let bridge: VoiceAgentBridge | null = null
+    let finalized = false
+
+    // Finalize exactly once, whether the call ends via a Twilio `stop` frame
+    // or an abrupt socket close (caller hangs up). Counts the call, records
+    // duration, decrements the active gauge, and tears down the bridge.
+    function finalize(reason: 'stop' | 'close'): void {
+      if (finalized || !state) return
+      finalized = true
+
+      const duration = Date.now() - state.startedAt
+      bridge?.sendStop()
+      bridge?.close()
+      bridge = null
+
+      callsTotal.inc({ direction: 'inbound', status: 'completed' })
+      callDurationSeconds.observe({ direction: 'inbound' }, duration / 1000)
+      activeCalls.dec()
+
+      req.log.info({
+        event: 'twilio_ws.finalize',
+        reason,
+        streamSid: state.streamSid,
+        callSid: state.callSid,
+        duration_ms: duration,
+        bytes_in: state.bytesIn,
+        bytes_out: state.bytesOut,
+      })
+      activeStreams.delete(state.streamSid)
+      state = null
+    }
 
     // Called by the bridge whenever the voice-agent sends back a tts.audio event.
     // Converts PCM16 24 kHz → µ-law 8 kHz and writes a Twilio media frame to the
@@ -24,7 +61,8 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
         const frame = pcm16ToTwilioFrame(state.streamSid, pcm24k)
         const frameBytes = Buffer.byteLength(frame)
         state.bytesOut += frameBytes
-        connection.socket.send(frame)
+        audioBytesTotal.inc({ direction: 'outbound' }, frameBytes)
+        socket.send(frame)
         req.log.debug({
           event: 'twilio_ws.return_audio',
           streamSid: state.streamSid,
@@ -37,7 +75,7 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
       }
     }
 
-    connection.socket.on('message', (raw: Buffer) => {
+    socket.on('message', (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString()) as TwilioFrame
 
@@ -50,6 +88,7 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
             bytesOut: 0,
           }
           activeStreams.set(state.streamSid, state)
+          activeCalls.inc()
 
           bridge = openBridge(VOICE_AGENT_WS_URL, state.callSid, state.streamSid, req.log, onReturnAudio)
           bridge.sendStart({
@@ -69,37 +108,19 @@ export function registerMediaStreamHandler(app: FastifyInstance) {
           const pcm8k = ulawToPcm16(ulaw)
           const pcm24k = resamplePcm16(pcm8k, 8000, 24000)
           state.bytesIn += ulaw.length
+          audioBytesTotal.inc({ direction: 'inbound' }, ulaw.length)
           bridge?.sendAudio(pcm24k)
         } else if (msg.event === 'stop' && state) {
-          const duration = Date.now() - state.startedAt
-
-          bridge?.sendStop()
-          bridge?.close()
-          bridge = null
-
-          req.log.info({
-            event: 'twilio_ws.stop',
-            streamSid: state.streamSid,
-            callSid: state.callSid,
-            duration_ms: duration,
-            bytes_in: state.bytesIn,
-            bytes_out: state.bytesOut,
-          })
-          activeStreams.delete(state.streamSid)
-          state = null
+          finalize('stop')
         }
       } catch (err) {
         req.log.error({ err })
       }
     })
 
-    connection.socket.on('close', () => {
-      if (state) {
-        bridge?.sendStop()
-        bridge?.close()
-        bridge = null
-        activeStreams.delete(state.streamSid)
-      }
+    socket.on('close', () => {
+      // Abrupt hangup with no `stop` frame still finalizes (idempotent).
+      finalize('close')
     })
   })
 }

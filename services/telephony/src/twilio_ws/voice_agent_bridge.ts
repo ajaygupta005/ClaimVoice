@@ -22,7 +22,15 @@
  */
 
 import { WebSocket } from 'ws'
-import type { Logger } from 'pino'
+
+// Minimal structural logger so both pino (Logger) and Fastify's req.log
+// (FastifyBaseLogger) satisfy it without a type mismatch.
+export interface Logger {
+  info(obj: unknown, msg?: string): void
+  warn(obj: unknown, msg?: string): void
+  error(obj: unknown, msg?: string): void
+  debug(obj: unknown, msg?: string): void
+}
 
 // ── Outbound event shapes (telephony → voice-agent) ───────────────────────────
 

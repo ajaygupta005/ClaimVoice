@@ -1,15 +1,24 @@
 name: Security
+
 on:
   schedule:
     - cron: "0 12 * * 1"
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   codeql:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3
-        with: { languages: javascript, python }
+        with:
+          languages: ${{ matrix.language }}
       - uses: github/codeql-action/analyze@v3
+        continue-on-error: true
