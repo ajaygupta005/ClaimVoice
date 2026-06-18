@@ -12,6 +12,7 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "redis>=5.2",
   "httpx>=0.28",
+  "anthropic>=0.40",
   "loguru>=0.7",
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",

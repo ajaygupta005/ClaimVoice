@@ -887,6 +887,7 @@ version = "0.1.0"
 source = { virtual = "services/eligibility" }
 dependencies = [
     { name = "alembic" },
+    { name = "anthropic" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "loguru" },
@@ -909,6 +910,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "anthropic", specifier = ">=0.40" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "loguru", specifier = ">=0.7" },
