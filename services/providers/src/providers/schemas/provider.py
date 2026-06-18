@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProviderOut(BaseModel):
@@ -45,3 +45,11 @@ class ProviderNearResponse(BaseModel):
     total: int
     query: dict
     providers: list[ProviderNearItem]
+
+
+class ProviderBulkRequest(BaseModel):
+    npis: list[str] = Field(..., min_length=1, max_length=100)
+
+
+class ProviderBulkResponse(BaseModel):
+    providers: list[ProviderOut]
