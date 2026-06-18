@@ -61,6 +61,61 @@ def get_plan_benefits(session: Session, plan_id: uuid.UUID) -> list[dict[str, An
     return [dict(r) for r in rows]
 
 
+def get_coverage(
+    session: Session,
+    member_id: str,
+    service: str,
+    network_type: str = "In Network",
+) -> Optional[dict[str, Any]]:
+    """Resolve a member's coverage for a service.
+
+    Returns {member, benefit|None, plan_deductible_cents, plan_oop_cents} or None if
+    the member does not exist. ``benefit`` is the best benefit row whose name or
+    service_category matches ``service`` (name match preferred), within ``network_type``.
+    """
+    member = session.execute(
+        text("""
+            SELECT member_id, plan_id, eligibility_status, deductible_ytd_cents, oop_ytd_cents
+            FROM members WHERE member_id = :mid
+        """),
+        {"mid": member_id},
+    ).mappings().first()
+    if member is None:
+        return None
+
+    pid = str(member["plan_id"])
+    pattern = f"%{service}%"
+    benefit = session.execute(
+        text("""
+            SELECT benefit_name, service_category, network_type, copay_amount_cents,
+                   coinsurance_percentage, individual_deductible_cents,
+                   out_of_pocket_max_cents, requires_prior_auth
+            FROM plan_benefits
+            WHERE plan_id = :pid AND network_type = :net
+              AND (benefit_name ILIKE :pat OR service_category ILIKE :pat)
+            ORDER BY (CASE WHEN benefit_name ILIKE :pat THEN 0 ELSE 1 END), benefit_name
+            LIMIT 1
+        """),
+        {"pid": pid, "net": network_type, "pat": pattern},
+    ).mappings().first()
+
+    levels = session.execute(
+        text("""
+            SELECT MAX(individual_deductible_cents) AS ded,
+                   MAX(out_of_pocket_max_cents) AS oop
+            FROM plan_benefits WHERE plan_id = :pid AND network_type = :net
+        """),
+        {"pid": pid, "net": network_type},
+    ).mappings().first()
+
+    return {
+        "member": dict(member),
+        "benefit": dict(benefit) if benefit else None,
+        "plan_deductible_cents": levels["ded"] if levels else None,
+        "plan_oop_cents": levels["oop"] if levels else None,
+    }
+
+
 def search_formulary(
     session: Session,
     plan_id: uuid.UUID,
