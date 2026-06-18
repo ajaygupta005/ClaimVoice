@@ -17,10 +17,13 @@ uv run python scripts/generate_nppes_sample.py
 echo "→ [3/5] loading providers from the sample (download bypassed)"
 uv run python data/ingest/npi_ingest.py npi.source_csv=data/raw/nppes_sample.csv
 
-echo "→ [4/5] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS codes"
+echo "→ [4/6] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS codes"
 uv run python data/ingest/seed_dev.py
 
-echo "→ [5/5] seeding 30 test members + X12 271 stubs"
+echo "→ [5/6] seeding 30 test members + X12 271 stubs"
 uv run python data/ingest/seed_test_members.py
+
+echo "→ [6/6] seeding canonical demo member + plan (golden values for agent eval)"
+uv run python data/ingest/seed_demo_member.py
 
 echo "✅ dev seed complete — WS-4/WS-5/WS-6 now have data to develop against."

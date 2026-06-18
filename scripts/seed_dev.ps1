@@ -81,11 +81,14 @@ Write-Host "[4/6] loading providers from the sample (download bypassed)"
 uv run --no-project --python 3.12 --with hydra-core --with omegaconf --with "psycopg[binary]" `
     python data/ingest/npi_ingest.py npi.source_csv=data/raw/nppes_sample.csv
 
-Write-Host "`n[5/6] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS"
+Write-Host "`n[5/7] seeding plans, benefits, formulary, in-network, ICD-10/HCPCS"
 uv run --no-project --python 3.12 --with "psycopg[binary]" python data/ingest/seed_dev.py
 
-Write-Host "[6/6] seeding 30 test members + X12 271 stubs"
+Write-Host "[6/7] seeding 30 test members + X12 271 stubs"
 uv run --no-project --python 3.12 --with faker --with "psycopg[binary]" python data/ingest/seed_test_members.py
+
+Write-Host "[7/7] seeding canonical demo member + plan (golden values for agent eval)"
+uv run --no-project --python 3.12 --with "psycopg[binary]" python data/ingest/seed_demo_member.py
 
 # ---- Report row counts (via DATABASE_URL, works in both modes) ----------------
 Write-Host "`n=== ROW COUNTS ==="
