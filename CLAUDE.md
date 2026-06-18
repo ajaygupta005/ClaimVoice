@@ -10,38 +10,41 @@ ClaimVoice is a multi-modal AI agent for US health-insurance members. Members ph
 
 ### Setup
 ```bash
-just install        # pnpm install + uv sync + pre-commit hooks
-just up             # docker-compose (Postgres, Redis, MinIO, MLflow, Langfuse, Prometheus, Grafana)
-just data.ingest    # download + load all CMS public datasets
+just install        # pnpm install + uv sync  (pre-commit hooks are NOT auto-installed; run `pre-commit install` separately)
+just up             # docker compose up -d (Postgres, Redis, MinIO, MLflow, Langfuse, Prometheus, Grafana)
+just data.ingest    # dvc repro of the CMS ingest stages, in dependency order
 dvc pull            # fetch ML model checkpoints from MinIO remote
-just dev            # start all services with hot reload
+just dev            # turbo dev — all services with hot reload
+
+# Or one-shot, cross-platform (no `just` needed): python scripts/start.py  (see Startup Script below)
 ```
 
 ### Development
 ```bash
 just dev            # all services (web :3000, api-gateway :8080, plus Python services)
-pnpm dev            # frontend only
+pnpm dev            # turbo dev
 pnpm build          # production build (Turbo-orchestrated)
-pnpm lint           # ESLint across all TS workspaces
-pnpm typecheck      # tsc --noEmit across all TS workspaces
+pnpm lint           # ESLint across all TS workspaces (turbo lint)
+# Root scripts are build/dev/lint/test only (see package.json + turbo.json — no root `typecheck` task).
+# pnpm workspaces cover only apps/*, services/api-gateway, services/telephony, packages/* — the FastAPI services are a uv workspace.
 ```
 
 ### Testing
 ```bash
-just test                           # full suite: pnpm test + uv run pytest
-uv run pytest -q                    # Python tests only
-uv run pytest services/voice-agent  # single service tests
-pnpm test --filter=web              # single JS workspace
-just eval                           # Inspect AI evaluation suite (nightly tasks)
-just eval.card_ocr                  # card OCR eval only
+just test                                   # full suite: pnpm test + uv run pytest -q
+uv run pytest -q                            # Python tests only (root pytest.ini: tests/, services/telephony/tests/, eval/tests/)
+uv run pytest services/voice-agent          # single service's tests
+uv run pytest -m "not integration and not e2e"   # skip tests that need running services / external APIs
+pnpm test --filter=web                      # single JS workspace
+just eval                                   # full Inspect AI suite → `inspect eval eval/tasks/`
+inspect eval eval/tasks/card_ocr_eval.py    # one eval task (there is NO `just eval.<name>` recipe)
 ```
 
 ### Code Quality
 ```bash
-uv run ruff check .                 # Python lint
+uv run ruff check .                 # Python lint (root pyproject: select E/F/W, ignore E501, line-length 100)
 uv run ruff format .                # Python format
-uv run mypy .                       # strict type check (configured in pyproject.toml)
-pnpm lint                           # ESLint
+pnpm lint                           # ESLint (via `turbo lint`)
 pnpm --filter=<package> typecheck   # per-package TS check
 ```
 
@@ -83,14 +86,29 @@ data/
   PLAN.md                # WS-1 task tracker (C1–C10, per-commit status)
   SPEC.md                # data schema DDL and source catalog
 eval/
-  tasks/                 # Inspect AI eval tasks (e2e, coverage QA, hallucination, OCR)
+  tasks/                 # Inspect AI eval tasks: agent_pipeline, card_ocr, coverage_qa, e2e_voice, hallucination, provider_lookup
   datasets/              # Golden datasets (hallucination_golden.json, etc.)
 docs/
+  PROJECT_SPEC.md        # full product/tech spec (model + provider choices, workstreams WS-1..)
+  ARCHITECTURE.md / architecture.md  # mermaid system diagram + port table + production gaps
+  adr/                   # architecture decision records (e.g. 0002-claude-over-gpt)
   components/            # Per-component RESEARCH / SPEC / PLAN / RESULTS docs
   runbook.md             # Operational runbook (stack startup, Twilio setup, demo flows)
-infra/                   # docker-compose.yml
+infra/                   # per-service config (postgres/init.sql, redis/, prometheus/, grafana/, langfuse/, minio/, mlflow/)
 scripts/                 # One-off utilities (NPPES sample download/generation, WS-1 setup)
 ```
+Note: `docker-compose.yml` lives at the **repo root** (not under `infra/`); `infra/` holds the per-service config files those containers mount.
+
+### Service Ports
+
+| Service | Port | Stack | Service | Port | Stack |
+| --- | --- | --- | --- | --- | --- |
+| web | 3000 | Next.js 15 | api-gateway | 8080 | Fastify |
+| document-ai | 8001 | FastAPI | eligibility | 8002 | FastAPI |
+| providers | 8003 | FastAPI | voice-agent | 8004 | FastAPI + LangGraph |
+| telephony | 8005 | Fastify | — | — | — |
+
+Infra (docker compose): Postgres 5432 · Redis 6379 · MinIO 9000 / console 9001 · Langfuse 3001 · MLflow 5000 · Prometheus 9090 · Grafana 3002.
 
 ### Request Flow
 
@@ -114,6 +132,8 @@ Next.js (3000)  ←→  Fastify API Gateway (8080)  [Clerk JWT + rate limit]
 For voice calls: Twilio Media Streams → Telephony service (:8005, μ-law↔PCM16 transcoding) → Voice Agent WebSocket. The Telephony service also handles state-based consent announcements and AES-256-GCM encrypted recording storage.
 
 ### Voice Agent (LangGraph State Machine)
+
+Streaming voice stack: **Deepgram Nova-2** (STT) → Claude (tool-use + response) → **Cartesia Sonic** (TTS), with barge-in via VAD.
 
 States: `greet → identify → answer → confirm → close`
 
@@ -186,19 +206,19 @@ All services emit to:
 
 ### LLM Usage
 
-Claude 3.5 Sonnet is the only LLM — used in:
+Claude Sonnet (the configured model id in code/tests is **`claude-sonnet-4-6`**, read from `anthropic_model` settings) handles all product-path generation:
 1. Voice Agent (LangGraph orchestration, tool selection, response generation)
 2. Document AI (Instructor-structured extraction after OCR)
 3. Hallucination guard verification
 
-Prompts are versioned in `packages/shared-prompts/` (subdirs: `card_extraction/`, `coverage_qa/`, `tool_use/`, `voice/`).
+Claude **Opus** is additionally used as the LLM judge in the eval suite (`model_graded_qa`), so Sonnet is not the only model in the repo. When changing the model, edit the settings/`anthropic_model` value — don't hardcode it. Prompts are versioned in `packages/shared-prompts/` (subdirs: `card_extraction/`, `coverage_qa/`, `tool_use/`, `voice/`).
 
 ## Key Conventions
 
 ### Python Services
 - Python 3.12, FastAPI, Pydantic v2, `uv` for package management
 - Each service: `src/<service_name>/` with `main.py`, `api/v1/`, `core/`, `services/`, `repositories/`, `schemas/`, `lib/`
-- Strict mypy; ruff line-length 100; 4-space indent
+- ruff is the configured linter/formatter (line-length 100, 4-space indent). No `[tool.mypy]` exists in any `pyproject.toml` yet — don't assume type-checking is wired into CI.
 - Tests at `tests/{unit,integration,fixtures}/`
 
 ### TypeScript Services/Apps
@@ -237,9 +257,8 @@ What it does in order:
 PIDs are saved to `.claimvoice.pids` so `--stop` can terminate them cleanly. Re-running start while services are already up: run `--stop` first, then start again. On Windows, `taskkill /F` is used instead of SIGTERM.
 
 
-### Ws-2 Enhcanements: Done
-1. /Users/ssachindeep/code/IISc/DeepLearning/project/ClaimVoice/docs/components/17-ws2-dashboard-shell
+### WS-2 Enhancements: Done
+1. `docs/components/17-ws2-dashboard-shell`
 
-### Enhcanements: To-Do
-
-- /Users/ssachindeep/code/IISc/DeepLearning/project/ClaimVoice/docs/components/20-ws2-browser-voice-ui
+### Enhancements: To-Do
+- `docs/components/20-ws2-browser-voice-ui`
