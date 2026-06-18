@@ -36,7 +36,12 @@ app.setErrorHandler((error: FastifyError, request, reply) => {
   reply.send(error)
 })
 
-app.get('/health', async () => ({ status: 'ok' }))
+const startedAt = Date.now()
+app.get('/health', async () => ({
+  status: 'ok',
+  service: 'telephony',
+  uptime_s: Math.round((Date.now() - startedAt) / 1000),
+}))
 
 app.get('/metrics', async (_request, reply) => {
   reply.header('Content-Type', metricsContentType())
