@@ -49,6 +49,14 @@ app.post('/twilio/status', statusRoute)
 registerMediaStreamHandler(app)
 registerCallApi(app)
 
+// Close the server cleanly on container stop so in-flight calls drain.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    app.log.info({ event: 'shutdown', signal })
+    app.close().then(() => process.exit(0))
+  })
+}
+
 try {
   await app.listen({ port: config.PORT, host: '0.0.0.0' })
 } catch (err) {
