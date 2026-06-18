@@ -171,6 +171,62 @@ def get_cost_inputs(
     }
 
 
+def lookup_drug(
+    session: Session,
+    member_id: str,
+    drug: str,
+    limit: int = 5,
+) -> Optional[dict[str, Any]]:
+    """Resolve a drug against the member's plan formulary.
+
+    Returns {plan_id, match|None, alternatives[]} or None if member not found.
+    The best match prefers an exact name match, then lowest tier. Alternatives are
+    other formulary drugs at the same-or-lower tier (cheaper/equal), excluding the match.
+    """
+    member = session.execute(
+        text("SELECT plan_id FROM members WHERE member_id = :mid"),
+        {"mid": member_id},
+    ).mappings().first()
+    if member is None:
+        return None
+
+    pid = str(member["plan_id"])
+    cols = """id, drug_name, ndc_code, formulary_tier, prior_auth_required,
+              step_therapy_required, quantity_limit"""
+    match = session.execute(
+        text(f"""
+            SELECT {cols}
+            FROM formulary_drug
+            WHERE plan_id = :pid AND drug_name ILIKE :pat
+            ORDER BY (CASE WHEN drug_name ILIKE :exact THEN 0 ELSE 1 END),
+                     formulary_tier NULLS LAST, drug_name
+            LIMIT 1
+        """),
+        {"pid": pid, "pat": f"%{drug}%", "exact": drug},
+    ).mappings().first()
+
+    alternatives: list[dict[str, Any]] = []
+    if match is not None and match["formulary_tier"] is not None:
+        rows = session.execute(
+            text(f"""
+                SELECT {cols}
+                FROM formulary_drug
+                WHERE plan_id = :pid AND id != :mid
+                  AND formulary_tier IS NOT NULL AND formulary_tier <= :tier
+                ORDER BY formulary_tier, drug_name
+                LIMIT :limit
+            """),
+            {"pid": pid, "mid": str(match["id"]), "tier": match["formulary_tier"], "limit": limit},
+        ).mappings().all()
+        alternatives = [dict(r) for r in rows]
+
+    return {
+        "plan_id": member["plan_id"],
+        "match": dict(match) if match else None,
+        "alternatives": alternatives,
+    }
+
+
 def search_formulary(
     session: Session,
     plan_id: uuid.UUID,
