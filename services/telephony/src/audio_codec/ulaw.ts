@@ -3,12 +3,13 @@
 
 const ULAW_DECODE = new Int16Array(256)
 for (let i = 0; i < 256; i++) {
-  let u = ~i & 0xff
+  const u = ~i & 0xff
   const sign = u & 0x80 ? -1 : 1
   const exp = (u >> 4) & 0x07
   const mant = u & 0x0f
-  const val = ((mant << 4) + 0x08) << (exp + 3)
-  ULAW_DECODE[i] = sign * (val - 0x84)
+  // Standard G.711: t = ((mantissa << 3) + BIAS) << exponent, then remove BIAS.
+  const t = ((mant << 3) + 0x84) << exp
+  ULAW_DECODE[i] = sign * (t - 0x84)
 }
 
 export function ulawToPcm16(buf: Buffer): Buffer {
