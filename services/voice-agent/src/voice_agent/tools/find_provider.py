@@ -26,8 +26,11 @@ def _mock(question: str) -> ToolResult:
         )
         return ToolResult(result, {"specialty": "primary care", "geo": "member location"}, True, [result])
     match = re.search(
-        r"\b(cardiologist|dermatologist|orthopedist|psychiatrist|therapist|specialist|primary care|PCP|"
-        r"radiologist|imaging center|urgent care|gynecologist|OB-GYN|ophthalmologist|optometrist)\b",
+        r"\b(internal medicine|family medicine|family practice|pediatric(?:ian)?s?|"
+        r"psychiatr(?:ist|y)|emergency(?: medicine)?|cardiolog(?:ist|y)|dermatolog(?:ist|y)|"
+        r"orthoped(?:ist|ics|ic surgery)|therapist|specialist|primary care|PCP|"
+        r"radiologist|imaging center|urgent care|gynecologist|obstetrics|OB-GYN|"
+        r"ophthalmologist|optometrist)\b",
         question, re.IGNORECASE,
     )
     specialty = match.group(0) if match else "provider"

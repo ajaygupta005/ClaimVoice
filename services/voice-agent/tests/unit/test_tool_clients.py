@@ -72,6 +72,12 @@ def test_formulary_http_parses(monkeypatch):
     assert "prior authorization required" in r.facts
 
 
+def test_find_provider_extracts_seeded_specialties():
+    assert fp._mock("Find an internal medicine doctor near me").args["specialty"] == "internal medicine"
+    assert fp._mock("I need a pediatrician").args["specialty"].startswith("pediatric")
+    assert "cardiolog" in fp._mock("Find a cardiologist near me").args["specialty"].lower()
+
+
 def test_provider_http_parses(monkeypatch):
     monkeypatch.setattr(
         fp.httpx, "get",
