@@ -5,6 +5,9 @@
 > hallucination guard (WS-4 `/fact_check`) → spoken response. STT→Claude→TTS with real
 > Deepgram/Cartesia (key-gated, mock fallback).
 
+**Status: ✅ implemented & tested (M10–M14) — see `Plan/HANDOFF.md`.** The sections below describe
+the original plan/baseline.
+
 ## Current state (baseline)
 
 - Real 6-node linear LangGraph (`graph/state_machine.py`):

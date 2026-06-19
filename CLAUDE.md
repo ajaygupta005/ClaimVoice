@@ -237,6 +237,28 @@ Claude **Opus** is additionally used as the LLM judge in the eval suite (`model_
 - Consent state is tracked per-call in the Telephony service
 
 
+## Active development: WS-4/5/6 "grounded agent" (branch `feat/ws456-grounded-agent`)
+
+**A new session continuing this work should read `Plan/HANDOFF.md` first** (full context,
+run modes, test commands), plus `Plan/ROADMAP.md` and `Plan/SPEC-WS{4,5,6}.md`.
+
+Status: WS-4 Eligibility (`/coverage`, `/cost/estimate`, `/formulary/lookup`, `/fact_check`),
+WS-5 Providers (`/providers/near`, `/providers/bulk` + enrichment), and WS-6 Voice Agent
+(real tool clients → WS-4/5, `/fact_check` hallucination guard, key-gated Deepgram/Cartesia/VAD,
+conversation memory + member threading) are **implemented and tested** (milestones M0–M14).
+
+Critical, non-obvious dev facts:
+- **Dev DB is reused from another app's Postgres** (`sentinel-postgres`, plain `postgres:16-alpine`
+  on `localhost:5432`) — an isolated `claimvoice` db/role was added there. **No PostGIS, no pgvector**
+  (geo is app-side Haversine; SBC RAG deferred). Do **not** run the project's own
+  `docker compose up postgres` / `just up` (port 5432 collision).
+- Seed (idempotent): `powershell -ExecutionPolicy Bypass -File scripts/seed_dev.ps1 -ExistingDb -SentinelContainer sentinel-postgres` (or `bash scripts/seed_dev.sh`). Demo member is `CVX-0042-MT`.
+- **Run tests via per-service ephemeral uv envs + `PYTHONPATH`** (a full `uv sync` pulls heavy
+  document-ai ML deps) — exact commands in `Plan/HANDOFF.md`.
+- Everything defaults to deterministic **mock mode** (offline). Real paths are env-gated:
+  `TOOL_MODE=http`, `VOICE_AGENT_ANSWER_MODE=claude`, `FACT_CHECK_MODE=claude`, `STT_MODE=deepgram`,
+  `TTS_MODE=cartesia` (need the matching API keys).
+
 ### Startup Script (`scripts/start.py`)
 # Done
 Cross-platform (macOS, Linux, Windows) — requires only Python 3.12, which is already a project prerequisite.

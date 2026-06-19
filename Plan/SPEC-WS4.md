@@ -4,6 +4,9 @@
 > Grounding source for the whole product: coverage, cost, formulary, and the **fact-check** backbone
 > the voice agent's hallucination guard calls. **Structured data only** (SBC RAG deferred).
 
+**Status: ✅ implemented & tested (M1, M3–M7) — see `Plan/HANDOFF.md`.** The sections below
+describe the original plan/baseline.
+
 ## Current state (baseline)
 
 - 3 real GET endpoints already work: `/api/v1/members/{id}/summary`, `/api/v1/plans/{id}/benefits`,

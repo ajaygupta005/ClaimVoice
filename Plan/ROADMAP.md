@@ -5,6 +5,13 @@
 > **working, tested, grounded voice agent**. Definition of done = relevant Inspect AI evals green
 > with real code + unit/integration tests per service against the seeded dev DB.
 
+## Status — ✅ M0–M14 COMPLETE
+
+All milestones below are implemented, tested, and committed on `feat/ws456-grounded-agent`
+(one commit each; `git log --oneline origin/main..HEAD`). Tests green: WS-4 = 40, WS-5 = 20,
+WS-6 = 236, eval gate = 51. Live http e2e verified. **See `Plan/HANDOFF.md` for run modes,
+test commands, the dev-DB setup, and known limitations / next steps.**
+
 ## Scope (locked)
 
 - **In scope:** Build WS-4 + WS-5 FastAPI services fully; wire WS-6 (LangGraph tools, hallucination

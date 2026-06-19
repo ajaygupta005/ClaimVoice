@@ -4,6 +4,9 @@
 > Delivers the `find_provider` capability the voice agent calls: geo + specialty + in-network +
 > accepting-new ranking. **Geo is app-side Haversine** (works on plain Postgres; PostGIS is a future opt).
 
+**Status: ✅ implemented & tested (M8–M9) — see `Plan/HANDOFF.md`.** The sections below describe
+the original plan/baseline.
+
 ## Current state (baseline)
 
 - 2 real endpoints: `/api/v1/providers/search`, `/api/v1/providers/{npi}` via
