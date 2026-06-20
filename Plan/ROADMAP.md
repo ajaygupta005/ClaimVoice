@@ -12,6 +12,24 @@ All milestones below are implemented, tested, and committed on `feat/ws456-groun
 WS-6 = 236, eval gate = 51. Live http e2e verified. **See `Plan/HANDOFF.md` for run modes,
 test commands, the dev-DB setup, and known limitations / next steps.**
 
+## Component docs (per-feature specs)
+
+The detailed per-feature specs (SPEC + RESEARCH + PLAN + RESULTS each) live under
+`docs/components/` (this replaces the old `Plan/SPEC-WS{4,5,6}.md`):
+
+| Milestone(s) | Component folder |
+|---|---|
+| M3 + M4 | `docs/components/40-ws4-coverage-and-cost/` |
+| M5 | `docs/components/41-ws4-formulary-lookup/` |
+| M6 (+M7) | `docs/components/42-ws4-fact-check/` |
+| M8 | `docs/components/43-ws5-provider-geo-and-enrichment/` |
+| M9 | `docs/components/44-ws5-provider-bulk/` |
+| M10 | `docs/components/45-ws6-tool-clients/` |
+| M11 | `docs/components/46-ws6-hallucination-guard/` |
+| M12 | `docs/components/47-ws6-realtime-voice-io/` |
+| M13 | `docs/components/48-ws6-memory-and-member-threading/` |
+| M14 | `docs/components/49-ws6-e2e-voice-eval/` |
+
 ## Scope (locked)
 
 - **In scope:** Build WS-4 + WS-5 FastAPI services fully; wire WS-6 (LangGraph tools, hallucination
@@ -103,4 +121,5 @@ Mode toggles: `VOICE_AGENT_ANSWER_MODE`, `TOOL_MODE`, `FACT_CHECK_MODE`, `STT_MO
    assertions regress (`$` in cost answer, "deductible"/"lisinopril"/"cardiolog", grounded flags, `ok==grounded`).
 6. **Schema-migration ownership** — any new migration only in `services/eligibility/alembic/versions/`.
 
-See `SPEC-WS4.md`, `SPEC-WS5.md`, `SPEC-WS6.md` for per-workstream detail and frozen contracts.
+See the per-feature component docs under `docs/components/40-49/` (table above) for detailed
+specs and frozen contracts, and `Plan/HANDOFF.md` for the dev-environment setup.

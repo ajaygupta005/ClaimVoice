@@ -1,6 +1,7 @@
 # ClaimVoice WS-4 / WS-5 / WS-6 — Session Hand-off
 
-> **New session: read this first**, then `Plan/ROADMAP.md` and `Plan/SPEC-WS{4,5,6}.md`.
+> **New session: read this first**, then `Plan/ROADMAP.md` and the per-feature component docs in
+> `docs/components/40-49/` (SPEC/RESEARCH/PLAN/RESULTS each).
 > This captures the non-obvious context (dev DB, run modes, test commands) that is NOT
 > derivable from the code alone.
 
@@ -90,7 +91,7 @@ grounded answers; guard calls live `/fact_check`.
   `services/session_memory.py`.
 - **Seed/data:** `data/ingest/{seed_dev,seed_demo_member,enrich_providers}.py`, `scripts/seed_dev.{ps1,sh}`.
 - **Evals:** `eval/tasks/{agent_pipeline_eval,e2e_voice_eval,provider_lookup_eval,coverage_qa_eval,hallucination_eval}.py`.
-- **Plan:** `Plan/ROADMAP.md`, `Plan/SPEC-WS{4,5,6}.md`.
+- **Specs:** per-feature in `docs/components/40-49/`; program view + component map in `Plan/ROADMAP.md`.
 
 ## Known limitations / next steps (prioritized)
 

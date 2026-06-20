@@ -240,7 +240,8 @@ Claude **Opus** is additionally used as the LLM judge in the eval suite (`model_
 ## Active development: WS-4/5/6 "grounded agent" (branch `feat/ws456-grounded-agent`)
 
 **A new session continuing this work should read `Plan/HANDOFF.md` first** (full context,
-run modes, test commands), plus `Plan/ROADMAP.md` and `Plan/SPEC-WS{4,5,6}.md`.
+run modes, test commands), plus `Plan/ROADMAP.md` and the per-feature component docs under
+`docs/components/40-49/`.
 
 Status: WS-4 Eligibility (`/coverage`, `/cost/estimate`, `/formulary/lookup`, `/fact_check`),
 WS-5 Providers (`/providers/near`, `/providers/bulk` + enrichment), and WS-6 Voice Agent
