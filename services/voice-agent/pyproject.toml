@@ -17,4 +17,12 @@ dependencies = [
   "prometheus-client>=0.21",
   "langgraph>=0.2",
   "anthropic>=0.40",
+  "deepgram-sdk>=3.7",
+  "cartesia>=1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "integration: tests that need a live database or external services (auto-skipped)",
 ]

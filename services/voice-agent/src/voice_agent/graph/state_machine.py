@@ -47,21 +47,28 @@ def run_agent_graph(
     question: str,
     call_sid: str = "",
     stream_sid: str = "",
+    member_id: str = "MOCK-MEMBER-001",
+    history: list[dict] | None = None,
 ) -> AgentState:
     """
     Run the full agent pipeline and return the final AgentState.
     Synchronous — wraps LangGraph's invoke().
+
+    ``member_id`` defaults to the mock member so bare callers stay deterministic; the
+    HTTP/telephony layers thread the real member id. ``history`` carries prior turns.
     """
     initial: AgentState = {
         "call_sid": call_sid,
         "stream_sid": stream_sid,
         "question": question,
-        "member_id": "",
+        "member_id": member_id or "MOCK-MEMBER-001",
         "member_verified": False,
+        "history": history or [],
         "intent": "",
         "tool_name": "",
         "tool_args": {},
         "tool_result": "",
+        "tool_facts": [],
         "answer_text": "",
         "grounded": False,
         "guard_reason": "",

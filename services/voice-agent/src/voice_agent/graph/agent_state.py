@@ -16,12 +16,16 @@ class AgentState(TypedDict, total=False):
     member_id: str
     member_verified: bool
 
+    # ── conversation memory ─────────────────────────────────────────────────────
+    history: list[dict[str, Any]]  # prior [{question, answer}] turns this session
+
     # ── orchestration ─────────────────────────────────────────────────────────
     intent: str           # coverage | cost | provider | formulary | escalate
     tool_name: str        # check_coverage | estimate_cost | find_provider |
                           #   check_formulary | escalate_to_human
     tool_args: dict[str, Any]
-    tool_result: str      # raw result string from the mock tool
+    tool_result: str      # raw result string from the tool
+    tool_facts: list[str]  # grounding facts the hallucination guard verifies against
 
     # ── answer ────────────────────────────────────────────────────────────────
     answer_text: str

@@ -1,37 +1,25 @@
-"""Node: hallucination_guard — verify answer claims against tool result facts."""
+"""Node: hallucination_guard — verify answer claims against the tool's grounding facts.
+
+In ``tool_mode="http"`` this calls WS-4 POST /fact_check; otherwise it runs the same
+matcher in-process. Escalation answers always pass (no factual claims).
+"""
 
 from __future__ import annotations
 
-import re
-
+from voice_agent.core.config import settings
 from voice_agent.graph.agent_state import AgentState
+from voice_agent.guards.hallucination import fact_check
 
 
 def hallucination_guard(state: AgentState) -> AgentState:
-    """
-    Checks that any dollar amount in the answer text also appears in the tool
-    result.  Escalation answers always pass — they contain no factual claims.
-    """
     intent = state.get("intent", "escalate")
-    answer = state.get("answer_text", "")
-    tool_result = state.get("tool_result", "")
-
     if intent == "escalate":
         return {**state, "grounded": False, "guard_reason": "escalated — no factual claims"}
 
-    answer_amounts = set(re.findall(r"\$[\d,]+", answer))
-    result_amounts = set(re.findall(r"\$[\d,]+", tool_result))
-    hallucinated = answer_amounts - result_amounts
+    answer = state.get("answer_text", "")
+    facts = state.get("tool_facts") or [state.get("tool_result", "")]
 
-    if hallucinated:
-        return {
-            **state,
-            "grounded": False,
-            "guard_reason": f"ungrounded amounts: {hallucinated}",
-        }
-
-    return {
-        **state,
-        "grounded": True,
-        "guard_reason": "all claims grounded in tool result",
-    }
+    grounded, reason = fact_check(
+        answer, facts, mode=settings.tool_mode, base_url=settings.eligibility_base_url
+    )
+    return {**state, "grounded": grounded, "guard_reason": reason}

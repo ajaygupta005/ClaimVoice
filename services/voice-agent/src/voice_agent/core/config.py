@@ -6,6 +6,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://claimvoice:changeme@localhost:5432/claimvoice"
     redis_url: str = "redis://localhost:6379"
 
+    # Backend service URLs for real tool calls (tool_mode == "http")
+    eligibility_base_url: str = "http://localhost:8002"
+    providers_base_url: str = "http://localhost:8003"
+    # Tools: "mock" = deterministic inline logic; "http" = call WS-4/WS-5 services
+    # (falls back to the mock string on any HTTP error so dev/tests stay green).
+    tool_mode: Literal["mock", "http"] = "mock"
+
     # Answer composer: "mock" runs deterministic logic; "claude" calls Anthropic.
     # Default is "mock" so local startup works without an API key.
     voice_agent_answer_mode: Literal["mock", "claude"] = "mock"
@@ -22,6 +29,12 @@ class Settings(BaseSettings):
     # Google Application Credentials path (optional — falls back to ADC)
     google_application_credentials: str = ""
     system_tts_voice_name: str = "Samantha"
+
+    # Streaming STT/TTS — real adapters are key-gated with a mock fallback.
+    deepgram_api_key: str = ""
+    cartesia_api_key: str = ""
+    stt_mode: Literal["mock", "deepgram"] = "mock"
+    tts_mode: Literal["mock", "cartesia", "browser", "system"] = "mock"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

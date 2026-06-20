@@ -1,4 +1,9 @@
 npi:
+  # Local-CSV bypass for dev: point at a CSV with NPPES V2 headers (e.g. the
+  # synthetic sample from scripts/generate_nppes_sample.py) to skip the ~1 GB
+  # CMS download. Empty = download the real monthly dump from download_url.
+  # Override on the CLI: python data/ingest/npi_ingest.py npi.source_csv=data/raw/nppes_sample.csv
+  source_csv: ""
   download_url: "https://download.cms.gov/nppes/npi_data.zip"
   extract_dir: "data/raw/nppes_v2_may2026"
   

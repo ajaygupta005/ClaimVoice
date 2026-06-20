@@ -11,6 +11,8 @@ class AgentRespondRequest(BaseModel):
     question: str = Field(..., min_length=1)
     memberId: str = "CVX-0042-MT"
     source: Literal["typed", "voice", "demo"] = "typed"
+    # Optional stable id to carry conversation memory across turns.
+    sessionId: str | None = None
 
 
 class ToolTraceItem(BaseModel):

@@ -21,6 +21,7 @@ from voice_agent.schemas.agent_respond import (
 )
 from voice_agent.schemas.transcript import FinalTranscriptEvent
 from voice_agent.services.answer_orchestrator import orchestrate
+from voice_agent.services.session_memory import append_turn, get_history
 
 router = APIRouter()
 
@@ -63,6 +64,7 @@ def _backend_statuses(composer_mode: str, grounded: bool) -> list[dict[str, str]
 @router.post("/agent/respond", response_model=AgentRespondResponse)
 async def agent_respond(req: AgentRespondRequest) -> AgentRespondResponse:
     call_sid, stream_sid = _demo_sids(req.source)
+    session_id = req.sessionId or call_sid
 
     transcript = FinalTranscriptEvent(
         callSid=call_sid,
@@ -73,10 +75,12 @@ async def agent_respond(req: AgentRespondRequest) -> AgentRespondResponse:
     )
 
     try:
-        ev = orchestrate(transcript)
+        ev = orchestrate(transcript, member_id=req.memberId, history=get_history(session_id))
     except Exception as exc:
         logger.error(f"agent_respond orchestrate failed: {exc!r}")
         raise HTTPException(status_code=500, detail="Pipeline error") from exc
+
+    append_turn(session_id, req.question, ev.text)
 
     composer_mode = settings.voice_agent_answer_mode
     tool_trace = [

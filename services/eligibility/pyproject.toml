@@ -12,6 +12,7 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "redis>=5.2",
   "httpx>=0.28",
+  "anthropic>=0.40",
   "loguru>=0.7",
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",
@@ -28,3 +29,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+  "integration: tests that need a live database (auto-skipped when unreachable)",
+]

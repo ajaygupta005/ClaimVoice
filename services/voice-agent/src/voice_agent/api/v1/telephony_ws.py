@@ -30,8 +30,9 @@ from voice_agent.schemas.telephony_bridge import (
     StopEvent,
 )
 from voice_agent.services.answer_orchestrator import orchestrate
-from voice_agent.streaming.stt_adapter import MockStreamingSTT, StreamingSTT
-from voice_agent.streaming.tts_adapter import MockStreamingTTS, TtsAudioEvent
+from voice_agent.streaming.factory import build_stt, build_tts
+from voice_agent.streaming.stt_adapter import StreamingSTT
+from voice_agent.streaming.tts_adapter import TtsAudioEvent
 
 router = APIRouter()
 
@@ -69,7 +70,7 @@ async def _send_error(ws: WebSocket, error: str, detail: str) -> None:
 
 async def _handle_start(ws: WebSocket, ev: StartEvent, session: SessionState) -> None:
     session.started = True
-    session.stt = MockStreamingSTT(call_sid=ev.callSid, stream_sid=ev.streamSid)
+    session.stt = build_stt(call_sid=ev.callSid, stream_sid=ev.streamSid)
     logger.info(
         "bridge.session_started",
         call_sid=ev.callSid,
@@ -138,7 +139,7 @@ async def _handle_stop(ws: WebSocket, ev: StopEvent, session: SessionState) -> N
             await _send_json(ws, answer.model_dump_json())
 
             # Synthesize the answer into TTS audio chunks
-            tts = MockStreamingTTS()
+            tts = build_tts()
             tts_events = tts.synthesize(answer.text, ev.callSid, ev.streamSid)
             audio_count = sum(1 for e in tts_events if isinstance(e, TtsAudioEvent))
             logger.info(
