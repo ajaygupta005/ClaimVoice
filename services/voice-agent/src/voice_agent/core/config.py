@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     stt_mode: Literal["mock", "deepgram"] = "mock"
     tts_mode: Literal["mock", "cartesia", "browser", "system"] = "mock"
 
+    # Voice runtime selector (Component 50).
+    # "browser"     → use browser Web Speech API (default)
+    # "gemini-live" → use Gemini Live when key is present; falls back to browser
+    claimvoice_voice_runtime: Literal["browser", "gemini-live"] = "browser"
+    gemini_api_key: str = ""          # server-side only — never exposed to frontend
+    gemini_live_model: str = "gemini-3.1-flash-live-preview"
+    gemini_live_voice: str = "Zephyr"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

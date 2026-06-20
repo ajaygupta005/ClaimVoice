@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
-import { sendVoiceAgentQuestion } from '@/lib/voice-agent-client'
+import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus } from '@/lib/voice-agent-client'
 import { VoiceTurnController } from '@/lib/voice-turn-controller'
 import { synthesizeSpeech } from '@/lib/tts-client'
 
@@ -164,6 +164,40 @@ function LedRow({ label, ledStatus }: { label: string; ledStatus: LedStatus }) {
     <div className="flex items-center gap-1.5 py-[3px]">
       <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dot[ledStatus]}`} />
       <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-none">{label}</span>
+    </div>
+  )
+}
+
+// ── Runtime status row ────────────────────────────────────────────────────────
+
+function RuntimeRow({ status }: { status: VoiceRuntimeStatus }) {
+  const { runtime, model, voice, note } = status
+  const dotCls =
+    runtime === 'gemini-live-configured' ? 'bg-violet-500'  :
+    runtime === 'gemini-live-unavailable'? 'bg-amber-400 animate-pulse' :
+    runtime === 'fallback'               ? 'bg-red-400'     :
+                                           'bg-slate-400 dark:bg-slate-500'
+  const label =
+    runtime === 'gemini-live-configured'  ? 'Gemini Live configured' :
+    runtime === 'gemini-live-unavailable' ? 'Gemini unavailable'     :
+    runtime === 'fallback'                ? 'Backend offline'        :
+                                            'Browser voice'
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5 py-[3px]">
+        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotCls}`} />
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-none">{label}</span>
+      </div>
+      {(model || voice) && (
+        <span className="text-[9px] text-slate-400 dark:text-slate-500 pl-3 truncate">
+          {[model, voice].filter(Boolean).join(' · ')}
+        </span>
+      )}
+      {note && (
+        <span className="text-[9px] text-slate-300 dark:text-slate-600 pl-3 truncate" title={note}>
+          {note.length > 30 ? note.slice(0, 28) + '…' : note}
+        </span>
+      )}
     </div>
   )
 }
@@ -331,6 +365,13 @@ export default function VoiceAssistantUI() {
   const [usedFallback, setUsedFallback] = useState(false)
   const [composerMode, setComposerMode] = useState<string>('mock')
   const [interimText,  setInterimText] = useState('')
+
+  // ── Voice runtime selector (Component 50) ───────────────────────────────────
+  const [runtimeStatus, setRuntimeStatus] = useState<VoiceRuntimeStatus | null>(null)
+
+  useEffect(() => {
+    fetchRuntimeStatus().then(setRuntimeStatus).catch(() => {/* swallowed — fetchRuntimeStatus never throws */})
+  }, [])
 
   // ── Browser voice discovery ──────────────────────────────────────────────────
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null)
@@ -836,6 +877,12 @@ export default function VoiceAssistantUI() {
             <LedRow key={b.label} label={b.label} ledStatus={b.status} />
           ))}
         </div>
+        {runtimeStatus && (
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 mt-1">
+            <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Voice runtime</p>
+            <RuntimeRow status={runtimeStatus} />
+          </div>
+        )}
       </div>
 
     </div>
