@@ -179,6 +179,19 @@ def _find_tool(name: str) -> str | None:
 # Values are argv prefixes: ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
 TOOLS: dict[str, list[str]] = {}
 
+
+def _pnpm_node_env(pnpm: list[str]) -> dict[str, str]:
+    """
+    Ensure pnpm lifecycle scripts use the same modern Node runtime used to
+    launch Corepack. Without this, `pnpm --filter ... dev` can start tsx with
+    an older nvm Node from PATH, which breaks Fastify 5.
+    """
+    if len(pnpm) >= 2 and Path(pnpm[0]).name == "node":
+        node_bin_dir = str(Path(pnpm[0]).parent)
+        existing_path = os.environ.get("PATH", "")
+        return {"PATH": f"{node_bin_dir}{os.pathsep}{existing_path}"}
+    return {}
+
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 
 # required=True → hard failure; required=False → warning only
@@ -272,7 +285,15 @@ def install_dependencies() -> None:
 
     # Node (pnpm)
     info("pnpm install ...")
-    r = subprocess.run(pnpm + ["install"], cwd=ROOT, capture_output=True, text=True)
+    install_env = os.environ.copy()
+    install_env.update(_pnpm_node_env(pnpm))
+    r = subprocess.run(
+        pnpm + ["install"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=install_env,
+    )
     if r.returncode != 0:
         err(f"pnpm install failed:\n{r.stderr}")
         sys.exit(1)
@@ -379,6 +400,7 @@ def start_services() -> None:
 
     pnpm = TOOLS.get("pnpm", ["pnpm"])
     uv   = TOOLS.get("uv",   ["uv"])
+    node_env = _pnpm_node_env(pnpm)
 
     # Python services use a src/ layout; each service's src/ dir must be on
     # PYTHONPATH so uvicorn can import the package without an editable install.
@@ -395,14 +417,14 @@ def start_services() -> None:
             "api-gateway",
             pnpm + ["--filter", "@claimvoice/api-gateway", "dev"],
             ROOT,
-            None,
+            node_env,
             "http://localhost:8080/health",
         ),
         (
             "telephony",
             pnpm + ["--filter", "@claimvoice/telephony", "dev"],
             ROOT,
-            None,
+            node_env,
             "http://localhost:8005/health",
         ),
         (
@@ -441,7 +463,7 @@ def start_services() -> None:
             "web",
             pnpm + ["--filter", "@claimvoice/web", "dev"],
             ROOT,
-            None,
+            node_env,
             None,  # Next.js takes too long on first build; skip health-check
         ),
     ]
