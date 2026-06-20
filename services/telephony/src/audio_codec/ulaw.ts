@@ -3,12 +3,13 @@
 
 const ULAW_DECODE = new Int16Array(256)
 for (let i = 0; i < 256; i++) {
-  let u = ~i & 0xff
+  const u = ~i & 0xff
   const sign = u & 0x80 ? -1 : 1
   const exp = (u >> 4) & 0x07
   const mant = u & 0x0f
-  const val = ((mant << 4) + 0x08) << (exp + 3)
-  ULAW_DECODE[i] = sign * (val - 0x84)
+  // Standard G.711: t = ((mantissa << 3) + BIAS) << exponent, then remove BIAS.
+  const t = ((mant << 3) + 0x84) << exp
+  ULAW_DECODE[i] = sign * (t - 0x84)
 }
 
 export function ulawToPcm16(buf: Buffer): Buffer {
@@ -19,19 +20,24 @@ export function ulawToPcm16(buf: Buffer): Buffer {
   return out
 }
 
+const ULAW_BIAS = 0x84
+const ULAW_CLIP = 32635
+
 export function pcm16ToUlaw(buf: Buffer): Buffer {
   const out = Buffer.alloc(buf.length / 2)
   for (let i = 0; i < out.length; i++) {
-    let s = buf.readInt16LE(i * 2)
-    const sign = s < 0 ? 0x80 : 0
-    if (s < 0) s = -s
-    s += 0x84
-    if (s > 0x7fff) s = 0x7fff
-    let exp = 0
-    while (s >= 0x0080 << exp) exp++
-    if (exp > 7) exp = 7
-    const mant = (s >> (exp + 3)) & 0x0f
-    out[i] = ~(sign | (exp << 4) | mant) & 0xff
+    let sample = buf.readInt16LE(i * 2)
+    const sign = (sample >> 8) & 0x80
+    if (sign !== 0) sample = -sample
+    if (sample > ULAW_CLIP) sample = ULAW_CLIP
+    sample += ULAW_BIAS
+    // Find the exponent = position of the highest set bit at or above bit 7.
+    let exponent = 7
+    for (let mask = 0x4000; (sample & mask) === 0 && exponent > 0; exponent--, mask >>= 1) {
+      /* shift down until we hit the leading 1 */
+    }
+    const mantissa = (sample >> (exponent + 3)) & 0x0f
+    out[i] = ~(sign | (exponent << 4) | mantissa) & 0xff
   }
   return out
 }

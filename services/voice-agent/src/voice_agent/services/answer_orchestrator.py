@@ -13,15 +13,22 @@ from voice_agent.schemas.answer import AnswerFinalEvent, ToolTrace
 from voice_agent.schemas.transcript import FinalTranscriptEvent
 
 
-def orchestrate(transcript: FinalTranscriptEvent) -> AnswerFinalEvent:
+def orchestrate(
+    transcript: FinalTranscriptEvent,
+    member_id: str = "MOCK-MEMBER-001",
+    history: list[dict] | None = None,
+) -> AnswerFinalEvent:
     """
     Run the LangGraph pipeline and return an AnswerFinalEvent ready for TTS.
-    Signature is unchanged from the pre-LangGraph implementation.
+    ``member_id`` and ``history`` are threaded through by the HTTP/telephony layers;
+    bare callers keep the deterministic defaults.
     """
     state = run_agent_graph(
         question=transcript.text,
         call_sid=transcript.callSid,
         stream_sid=transcript.streamSid,
+        member_id=member_id,
+        history=history,
     )
 
     raw_traces = state.get("tool_trace") or []

@@ -23,6 +23,8 @@ from typing import Any
 import psycopg
 from faker import Faker
 
+from _plan_fixtures import _METALS, _PAYORS, _PLAN_DATA, _PLAN_NAMES
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -40,60 +42,8 @@ _STUBS_DIR = Path("data/stubs/eligibility_271")
 # Eligibility state distribution — 24 active / 4 inactive / 2 suspended
 _STATUSES = ["active"] * 24 + ["inactive"] * 4 + ["suspended"] * 2
 
-_PAYORS = ["aetna", "uhc", "bcbs", "cigna"]
-
-# Plan-level amounts per metal level (cents)
-_PLAN_DATA: dict[str, dict[str, Any]] = {
-    "bronze": {
-        "deductible_individual_cents": 685000,  # $6,850
-        "oop_max_individual_cents": 870000,      # $8,700
-        "copays": {"primary_care_cents": 7500, "specialist_cents": 15000, "emergency_cents": 45000},
-    },
-    "silver": {
-        "deductible_individual_cents": 450000,   # $4,500
-        "oop_max_individual_cents": 750000,       # $7,500
-        "copays": {"primary_care_cents": 3500, "specialist_cents": 7500, "emergency_cents": 35000},
-    },
-    "gold": {
-        "deductible_individual_cents": 150000,   # $1,500
-        "oop_max_individual_cents": 400000,       # $4,000
-        "copays": {"primary_care_cents": 2500, "specialist_cents": 5000, "emergency_cents": 25000},
-    },
-    "platinum": {
-        "deductible_individual_cents": 0,
-        "oop_max_individual_cents": 200000,       # $2,000
-        "copays": {"primary_care_cents": 1000, "specialist_cents": 2000, "emergency_cents": 15000},
-    },
-}
-
-_METALS = ["bronze", "silver", "gold", "platinum"]
-
-_PLAN_NAMES: dict[str, dict[str, str]] = {
-    "aetna": {
-        "bronze":   "Aetna Bronze 6850",
-        "silver":   "Aetna Silver 4500",
-        "gold":     "Aetna Gold 1500",
-        "platinum": "Aetna Platinum",
-    },
-    "uhc": {
-        "bronze":   "UHC Bronze Select",
-        "silver":   "UHC Silver Choice",
-        "gold":     "UHC Gold Plus",
-        "platinum": "UHC Platinum Premier",
-    },
-    "bcbs": {
-        "bronze":   "BCBS Bronze BlueSelect",
-        "silver":   "BCBS Silver BlueCare",
-        "gold":     "BCBS Gold BlueValue",
-        "platinum": "BCBS Platinum BluePremier",
-    },
-    "cigna": {
-        "bronze":   "Cigna Connect Bronze",
-        "silver":   "Cigna Connect Silver",
-        "gold":     "Cigna Connect Gold",
-        "platinum": "Cigna Connect Platinum",
-    },
-}
+# Plan definitions (_PAYORS, _METALS, _PLAN_DATA, _PLAN_NAMES) are imported from
+# _plan_fixtures so the dev seed and member seed share one source of truth.
 
 
 def _member_id(idx: int) -> str:

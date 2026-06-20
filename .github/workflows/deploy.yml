@@ -1,17 +1,58 @@
 name: Deploy
+
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: amondnet/vercel-action@v25
+
+      - name: Check Vercel secrets
+        id: vercel
+        run: |
+          if [ -n "${{ secrets.VERCEL_TOKEN }}" ] && [ -n "${{ secrets.VERCEL_PROJECT_ID }}" ]; then
+            echo "ready=true" >> $GITHUB_OUTPUT
+          else
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "Vercel secrets not configured. Skipping web deploy."
+          fi
+
+      - name: Deploy to Vercel
+        if: steps.vercel.outputs.ready == 'true'
+        uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           working-directory: apps/web
           vercel-args: --prod
+
+  deploy-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Railway token
+        id: railway
+        run: |
+          if [ -n "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "ready=true" >> $GITHUB_OUTPUT
+          else
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "RAILWAY_TOKEN not configured. Skipping service deploy."
+          fi
+
+      - name: Deploy services to Railway
+        if: steps.railway.outputs.ready == 'true'
+        run: |
+          npm i -g @railway/cli
+          for svc in telephony api-gateway document-ai eligibility providers voice-agent; do
+            echo "Deploying $svc"
+            railway up --service "$svc" --detach || echo "skip $svc"
+          done
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

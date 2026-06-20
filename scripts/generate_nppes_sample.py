@@ -67,7 +67,7 @@ def create_sample_nppes(num_records: int = 500) -> Path:
     output_file = Path("data/raw/nppes_sample.csv")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     
-    print(f"📝 Generating {num_records} synthetic NPPES records...")
+    print(f"Generating {num_records} synthetic NPPES records...")
     
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
@@ -131,9 +131,9 @@ def create_sample_nppes(num_records: int = 500) -> Path:
                 "NPI Deactivation Reason Code": "",  # All active
             })
     
-    print(f"✅ Created {num_records} synthetic records: {output_file}")
+    print(f"Created {num_records} synthetic records: {output_file}")
     print(f"   File size: {output_file.stat().st_size / 1024:.1f} KB")
-    print(f"\n📊 Sample records:")
+    print("\nSample records:")
     print("-" * 100)
     
     with open(output_file, "r") as f:
@@ -157,7 +157,7 @@ def create_sample_nppes(num_records: int = 500) -> Path:
 def show_download_instructions():
     """Show how to download real NPPES data."""
     print("\n" + "=" * 100)
-    print("🌐 To download the REAL NPPES V2 data from CMS:")
+    print("To download the REAL NPPES V2 data from CMS:")
     print("=" * 100)
     print("""
 1. Visit: https://www.cms.gov/Regulations-and-Guidance/Administrative-Simplification/NPI/index.html

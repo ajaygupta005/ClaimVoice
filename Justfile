@@ -28,6 +28,10 @@ data.ingest:
     dvc repro ingest_npi ingest_plan_puf ingest_icd_hcpcs download_sbcs \
         ingest_formulary parse_mrf sync_care_compare seed_members
 
+# Tier-1+ dev seed: schema + synthetic data, no external downloads (for WS-4/5/6 dev)
+data.dev:
+    bash scripts/seed_dev.sh
+
 data.synthetic:
     python data/ingest/synthetic_cards.py
 

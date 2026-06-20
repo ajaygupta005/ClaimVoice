@@ -24,3 +24,14 @@ class FormularySearchResponse(BaseModel):
     planId: uuid.UUID
     query: str
     drugs: list[FormularyDrugOut]
+
+
+class FormularyLookupResponse(BaseModel):
+    memberId: str
+    planId: uuid.UUID
+    query: str
+    match: Optional[FormularyDrugOut]
+    alternatives: list[FormularyDrugOut]
+    onFormulary: bool
+    # Human-readable claim strings for grounding.
+    facts: list[str]

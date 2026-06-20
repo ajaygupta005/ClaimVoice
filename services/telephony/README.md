@@ -11,9 +11,20 @@ pnpm install
 pnpm dev
 ```
 
-The service listens on `:8005`. Twilio webhook URLs:
+The service listens on `:8005`. Endpoints:
 - `POST /twilio/voice` — answers incoming calls
 - `POST /twilio/status` — receives call status updates
+- `POST /api/v1/voice/call` — places an outbound call (rate limited to 5 per minute)
+- `GET /health` — liveness probe
+- `GET /metrics` — Prometheus metrics (scraped by the telephony target)
+
+## Metrics
+
+Exposed at `GET /metrics` and scraped into the Voice/Telephony Grafana
+dashboard. Series include `telephony_calls_total`,
+`telephony_call_duration_seconds`, `telephony_active_calls`,
+`telephony_audio_bytes_total`, `telephony_recording_upload_seconds`, and
+`telephony_outbound_call_requests_total`.
 
 ## Point a Twilio number at it
 

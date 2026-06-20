@@ -129,8 +129,10 @@ def parse_npi_record(row: dict, config: DictConfig) -> Optional[dict]:
         organization_name = row.get("Provider Organization Name (Legal Business Name)", "").strip()
     
     credential = row.get("Provider Credential Text (Legal Auth. forGrad. Med. Edu.)", "").strip()
-    taxonomy_code = row.get("Provider Primary Taxonomy Switch", "").strip()
-    taxonomy_desc = row.get("Provider Primary Taxonomy Code", "").strip()
+    # NOTE: "...Taxonomy Switch" is a Y/N "is-primary" flag, NOT a code. The taxonomy
+    # CODE lives in "...Taxonomy Code". (Fixes the mapping flagged in data/SPEC.md §4.1.)
+    taxonomy_code = row.get("Provider Primary Taxonomy Code", "").strip()
+    taxonomy_desc = row.get("Provider Primary Taxonomy Description", "").strip()
     
     address_1 = row.get("First Line Business Practice Location Address", "").strip()
     city = row.get("First Line Business Practice Location Address City Name", "").strip()
@@ -213,7 +215,7 @@ def load_providers_to_db(csv_file: Path, config: DictConfig) -> None:
         if batch:
             total_loaded += _insert_batch(cursor, batch, conn)
         
-        logger.info(f"✅ Ingestion complete: {total_parsed} parsed, {total_loaded} loaded")
+        logger.info(f"Ingestion complete: {total_parsed} parsed, {total_loaded} loaded")
 
 
 def _insert_batch(cursor, batch: list, conn) -> int:
@@ -301,10 +303,19 @@ def main():
         cfg = compose(config_name="npi_ingest", overrides=sys.argv[1:])
     
     logger.info(f"Config: {OmegaConf.to_yaml(cfg)}")
-    
-    # Download NPPES
-    csv_file = download_nppes(cfg.npi.download_url, cfg.npi.extract_dir)
-    
+
+    # Local-CSV bypass: when npi.source_csv points to an existing file (e.g. the
+    # synthetic sample from scripts/generate_nppes_sample.py), use it directly and
+    # skip the ~1 GB CMS download. Leave it empty for the real monthly dump.
+    source_csv = cfg.npi.get("source_csv", "")
+    if source_csv:
+        csv_file = Path(source_csv)
+        if not csv_file.exists():
+            raise FileNotFoundError(f"npi.source_csv is set but the file was not found: {csv_file}")
+        logger.info(f"Using local NPI CSV (download bypassed): {csv_file}")
+    else:
+        csv_file = download_nppes(cfg.npi.download_url, cfg.npi.extract_dir)
+
     # Load to Postgres
     load_providers_to_db(csv_file, cfg)
 
