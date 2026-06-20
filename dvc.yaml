@@ -45,7 +45,7 @@ stages:
           persist: true
 
   generate_synthetic_cards:
-    desc: "Render 100 synthetic insurance card PNGs (4 payors × 25) for OCR training"
+    desc: "Render 160 synthetic insurance card PNGs (8 payors × 20) for OCR training"
     cmd: python data/ingest/synthetic_cards.py
     deps:
       - data/ingest/synthetic_cards.py
