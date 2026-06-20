@@ -7,6 +7,7 @@ import {
 import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
 import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus } from '@/lib/voice-agent-client'
+import { GeminiLiveClient, buildGeminiWsUrl } from '@/lib/gemini-live-client'
 import { VoiceTurnController } from '@/lib/voice-turn-controller'
 import { synthesizeSpeech } from '@/lib/tts-client'
 
@@ -445,8 +446,9 @@ export default function VoiceAssistantUI() {
     window.speechSynthesis.speak(utter)
   }
 
-  const controllerRef = useRef<VoiceTurnController | null>(null)
-  const transcriptRef = useRef<HTMLDivElement>(null)
+  const controllerRef  = useRef<VoiceTurnController | null>(null)
+  const geminiClientRef = useRef<GeminiLiveClient | null>(null)
+  const transcriptRef  = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (transcriptRef.current)
@@ -455,8 +457,67 @@ export default function VoiceAssistantUI() {
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { controllerRef.current?.cleanup('unmount') }
+    return () => {
+      controllerRef.current?.cleanup('unmount')
+      geminiClientRef.current?.cleanup()
+    }
   }, [])
+
+  // ── Gemini mic path ──────────────────────────────────────────────────────────
+
+  function stopGeminiMic() {
+    geminiClientRef.current?.stop()
+    geminiClientRef.current = null
+  }
+
+  async function startGeminiMic() {
+    // Tear down any running session first
+    stopGeminiMic()
+    controllerRef.current?.cleanup('gemini_start')
+
+    setStatus('listening')
+    setInterimText('')
+
+    const client = new GeminiLiveClient({
+      wsUrl: buildGeminiWsUrl(),
+      onPartial: (text) => setInterimText(text),
+      onFinal: (text) => {
+        setInterimText('')
+        setStatus('finalizing_stt')
+        // Hand final transcript to existing pipeline — same path as browser STT
+        void runPipeline(text, 'voice')
+      },
+      onError: (code, message) => {
+        console.warn('[GeminiLive] error:', code, message)
+        setInterimText('')
+        setStatus('error_recoverable')
+        geminiClientRef.current = null
+      },
+      onClose: () => {
+        // Session closed normally without a final — return to ready
+        if (geminiClientRef.current) {
+          geminiClientRef.current = null
+          setStatus('ready')
+        }
+      },
+    })
+    geminiClientRef.current = client
+
+    try {
+      await client.start()
+    } catch (err) {
+      console.warn('[GeminiLive] start failed:', err)
+      geminiClientRef.current = null
+      setInterimText('')
+      // Fall back to browser STT if available
+      const ctrl = newController()
+      const srOk = ctrl.startSTT()
+      if (!srOk) {
+        setStatus('error_recoverable')
+        ctrl.cleanup('gemini_fallback_no_sr')
+      }
+    }
+  }
 
   function newController(): VoiceTurnController {
     controllerRef.current?.cleanup('new_turn')
@@ -504,11 +565,12 @@ export default function VoiceAssistantUI() {
         if (backendResult.composer_mode) setComposerMode(backendResult.composer_mode)
         setGuardPassed(backendResult.grounded)
         setPipeDetails(backendResult.pipeDetails)
-        // Relabel backends: rename Claude → Claude answer, STT → STT: Browser
+        // Relabel backends: rename Claude → Claude answer, STT → runtime-aware label
         const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
+        const sttLabel = isGeminiRuntime ? 'STT: Gemini Live' : 'STT: Browser'
         setBackends(backendResult.backends.map(b => {
           if (b.label === 'Claude') return { ...b, label: 'Claude answer', status: claudeStatus as LedStatus }
-          if (b.label === 'STT')   return { ...b, label: 'STT: Browser' }
+          if (b.label === 'STT')   return { ...b, label: sttLabel }
           return b
         }))
       } else {
@@ -586,33 +648,49 @@ export default function VoiceAssistantUI() {
     }
   }
 
+  const isGeminiRuntime = runtimeStatus?.runtime === 'gemini-live-configured'
+
   const handleMicClick = useCallback(() => {
     if (status === 'thinking' || status === 'finalizing_stt') return
     primeSpeechSynthesis('mic_click')
 
     if (status === 'speaking') {
-      // Interrupt TTS and start new turn
-      const ctrl = newController()
-      ctrl.startSTT()
+      // Interrupt TTS and start a new turn
+      if (isGeminiRuntime) {
+        void startGeminiMic()
+      } else {
+        const ctrl = newController()
+        ctrl.startSTT()
+      }
       return
     }
 
     if (status === 'listening') {
-      controllerRef.current?.stopSTT()
+      // Stop whichever input path is active
+      if (isGeminiRuntime) {
+        stopGeminiMic()
+        setStatus('ready')
+      } else {
+        controllerRef.current?.stopSTT()
+      }
       return
     }
 
     // ready or error_recoverable → start new turn
-    const ctrl = newController()
-    ctrl.startSTT()
-    // If browser SR unavailable, ctrl is in listening state for demo fallback
-  }, [primeSpeechSynthesis, status]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (isGeminiRuntime) {
+      void startGeminiMic()
+    } else {
+      const ctrl = newController()
+      ctrl.startSTT()
+    }
+  }, [primeSpeechSynthesis, status, isGeminiRuntime]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleReset() {
     setInterimText('')
+    geminiClientRef.current?.cleanup()
+    geminiClientRef.current = null
     // cleanup() calls transition('ready') → onStateChange → setStatus('ready')
     controllerRef.current?.cleanup('user_reset')
-    // If controller was null, set status manually
     controllerRef.current = null
     setStatus('ready')
   }

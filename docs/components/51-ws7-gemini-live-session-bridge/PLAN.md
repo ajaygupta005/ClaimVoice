@@ -31,12 +31,3 @@
 18. [ ] Test transcript events normalize correctly.
 19. [ ] Test audio chunks normalize correctly.
 20. [ ] Test close is idempotent.
-
-## Commit
-
-21. [ ] Commit with:
-
-```bash
-git commit -m "feat(voice-agent): add Gemini Live session bridge"
-```
-
