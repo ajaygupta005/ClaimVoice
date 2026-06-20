@@ -35,12 +35,3 @@
 19. [ ] Manual test with longer coverage question.
 20. [ ] Manual test interrupting during listening.
 21. [ ] Manual test Gemini unavailable fallback.
-
-## Commit
-
-22. [ ] Commit with:
-
-```bash
-git commit -m "feat(web): stream browser speech through Gemini runtime"
-```
-

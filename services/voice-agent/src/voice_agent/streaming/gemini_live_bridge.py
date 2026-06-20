@@ -114,6 +114,16 @@ class GeminiLiveSession(ABC):
         """Send a text turn to Gemini Live (for testing / typed input)."""
 
     @abstractmethod
+    async def speak_text(self, text: str) -> bytes:
+        """Request Gemini Live to synthesise `text` as speech.
+
+        Returns concatenated raw PCM16 LE bytes (24 kHz, 1 channel).
+        Returns empty bytes if synthesis fails or is unavailable.
+        The text must be the final ClaimVoice-grounded answer — Gemini
+        only voices the answer, it never generates or modifies it.
+        """
+
+    @abstractmethod
     def events(self) -> AsyncIterator[GeminiLiveEvent]:
         """Async iterator of normalized events from the session."""
 
@@ -162,6 +172,9 @@ class _UnavailableSession(GeminiLiveSession):
     async def send_text(self, text: str) -> None:
         pass
 
+    async def speak_text(self, text: str) -> bytes:
+        return b""
+
     async def events(self) -> AsyncIterator[GeminiLiveEvent]:  # type: ignore[override]
         yield BridgeErrorEvent(code="unavailable", message=self._reason)
 
@@ -199,6 +212,11 @@ class MockGeminiLiveSession(GeminiLiveSession):
         await self._queue.put(
             TranscriptFinalEvent(text=text, confidence=0.99, duration_ms=500)
         )
+
+    async def speak_text(self, text: str) -> bytes:
+        """Simulate TTS — return minimal valid PCM16 silence (100 ms @ 24 kHz)."""
+        samples = 24_000 // 10  # 100 ms worth of silence
+        return b"\x00\x00" * samples
 
     async def events(self) -> AsyncIterator[GeminiLiveEvent]:  # type: ignore[override]
         await self._enqueue_opened()
@@ -274,6 +292,31 @@ class _RealGeminiLiveSession(GeminiLiveSession):
         except Exception as exc:
             logger.warning("gemini_live.send_text_error", error=str(exc))
             await self._queue.put(BridgeErrorEvent(code="send_text_failed", message=str(exc)))
+
+    async def speak_text(self, text: str) -> bytes:
+        """Send answer text to Gemini Live for TTS and collect all audio chunks.
+
+        Opens a fresh turn with turn_complete=True so Gemini speaks the text
+        without interpreting it as a user question. Collects all AudioChunkEvent
+        PCM bytes until turn_complete, then returns the concatenation.
+        """
+        pcm_parts: list[bytes] = []
+        try:
+            await self._live.send_client_content(  # type: ignore[attr-defined]
+                turns=[{"role": "user", "parts": [{"text": text}]}],
+                turn_complete=True,
+            )
+            async for raw in self._live:  # type: ignore[attr-defined]
+                ev = self._normalize(raw)
+                if isinstance(ev, AudioChunkEvent):
+                    pcm_parts.append(ev.pcm)
+                    if ev.is_final:
+                        break
+                elif isinstance(ev, (SessionClosedEvent, BridgeErrorEvent)):
+                    break
+        except Exception as exc:
+            logger.warning("gemini_live.speak_text_error", error=str(exc))
+        return b"".join(pcm_parts)
 
     async def events(self) -> AsyncIterator[GeminiLiveEvent]:  # type: ignore[override]
         yield SessionOpenedEvent(session_id=id(self._live).__str__())

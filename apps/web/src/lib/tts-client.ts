@@ -42,3 +42,27 @@ export async function synthesizeSpeech(
     return null
   }
 }
+
+/**
+ * Ask the backend to synthesise the final ClaimVoice answer text via Gemini Live.
+ * Returns null on failure so the caller can fall back to browser TTS.
+ * The Gemini API key never leaves the server.
+ */
+export async function synthesizeGeminiSpeech(
+  text: string,
+): Promise<TtsSynthesizeResponse | null> {
+  try {
+    const res = await fetch('/api/voice-agent/gemini-speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as TtsSynthesizeResponse
+    if (!data.ok || !data.audioBase64) return null
+    return data
+  } catch {
+    return null
+  }
+}

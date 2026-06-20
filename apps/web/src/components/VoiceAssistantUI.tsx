@@ -9,7 +9,7 @@ import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-
 import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus } from '@/lib/voice-agent-client'
 import { GeminiLiveClient, buildGeminiWsUrl } from '@/lib/gemini-live-client'
 import { VoiceTurnController } from '@/lib/voice-turn-controller'
-import { synthesizeSpeech } from '@/lib/tts-client'
+import { synthesizeSpeech, synthesizeGeminiSpeech } from '@/lib/tts-client'
 
 // ── Waveform ──────────────────────────────────────────────────────────────────
 
@@ -604,11 +604,29 @@ export default function VoiceAssistantUI() {
 
     ctrl.backendSuccess()
 
-    // ── TTS: try Google Cloud, then approved browser voice, else skip ─────────
+    // ── TTS: Gemini Live → Google Cloud → browser voice ──────────────────────
     const onTtsDone = () => {
       if (!isStale()) ctrl.cleanup('tts_done')
     }
 
+    // 1. Gemini Live TTS (only when runtime is gemini-live-configured)
+    if (isGeminiRuntime) {
+      const geminiAudio = await synthesizeGeminiSpeech(answerText)
+      if (isStale()) return
+      if (geminiAudio?.audioBase64) {
+        setBackends(prev => prev.map(b =>
+          isTtsBackendLabel(b.label)
+            ? { ...b, label: 'Voice: Gemini Live', status: 'connected' as LedStatus, detail: 'Answer: Claude' }
+            : b
+        ))
+        await ctrl.speakAudio(geminiAudio.audioBase64, geminiAudio.mimeType, onTtsDone, 'gemini-live')
+        return
+      }
+      // Gemini TTS failed — fall through to browser fallback below
+      console.warn('[ClaimVoice:TTS] Gemini Live speak failed, falling back to browser voice')
+    }
+
+    // 2. Google Cloud TTS (non-Gemini runtime or Gemini failed)
     const ttsData = await synthesizeSpeech({ text: answerText })
     if (isStale()) return
 
@@ -617,13 +635,6 @@ export default function VoiceAssistantUI() {
         ttsData.provider === 'google' ? 'TTS: Google'
           : ttsData.provider === 'system' ? 'TTS: macOS'
             : 'TTS: Audio'
-
-      console.debug('[ClaimVoice:TTS] backend_audio_selected', {
-        provider: ttsData.provider,
-        mimeType: ttsData.mimeType,
-        voiceName: ttsData.voiceName,
-        chars: answerText.length,
-      })
       setBackends(prev => prev.map(b =>
         isTtsBackendLabel(b.label)
           ? { ...b, label: ttsLabel, status: 'connected' as LedStatus, detail: ttsData.voiceName }
@@ -631,14 +642,8 @@ export default function VoiceAssistantUI() {
       ))
       await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, onTtsDone, ttsData.provider)
     } else {
-      // Resolve voice at speak-time — React state may be stale if voiceschanged fired late
+      // 3. Browser voice fallback
       const resolved = resolveBrowserVoice()
-      console.debug('[ClaimVoice:TTS] browser_voice_selected', {
-        label: resolved.label,
-        hasVoice: Boolean(resolved.voice),
-        chars: answerText.length,
-        dump: getSpeechSynthesisDump(),
-      })
       setBackends(prev => prev.map(b =>
         isTtsBackendLabel(b.label)
           ? { ...b, label: 'TTS: Browser', status: 'connected' as LedStatus, detail: resolved.label }
