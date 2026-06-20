@@ -30,12 +30,3 @@
 14. [ ] Test with `CLAIMVOICE_VOICE_RUNTIME=gemini-live` and key missing.
 15. [ ] Test with no Gemini runtime selected.
 16. [ ] Confirm voice-agent answers still work through existing path.
-
-## Commit
-
-17. [ ] Commit with:
-
-```bash
-git commit -m "feat(voice): add runtime selector metadata"
-```
-
