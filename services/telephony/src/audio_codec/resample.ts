@@ -3,7 +3,10 @@
 
 export function resamplePcm16(buf: Buffer, fromRate: number, toRate: number): Buffer {
   if (fromRate === toRate) return buf
-  const inSamples = buf.length / 2
+  // PCM16 is 2 bytes per sample; ignore a trailing odd byte rather than
+  // reading past the end of the buffer.
+  const inSamples = Math.floor(buf.length / 2)
+  if (inSamples === 0) return Buffer.alloc(0)
   const ratio = toRate / fromRate
   const outSamples = Math.floor(inSamples * ratio)
   const out = Buffer.alloc(outSamples * 2)

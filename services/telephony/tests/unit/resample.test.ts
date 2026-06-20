@@ -21,4 +21,18 @@ describe('resample', () => {
     const out = resamplePcm16(buf, 24000, 8000)
     expect(out.length / 2).toBe(samples / 3)
   })
+
+  it('empty buffer returns empty', () => {
+    expect(resamplePcm16(Buffer.alloc(0), 8000, 24000).length).toBe(0)
+  })
+
+  it('ignores a trailing odd byte instead of reading past the end', () => {
+    // 5 bytes = 2 whole samples + 1 stray byte.
+    const buf = Buffer.alloc(5)
+    buf.writeInt16LE(1000, 0)
+    buf.writeInt16LE(-1000, 2)
+    const out = resamplePcm16(buf, 8000, 24000)
+    // 2 input samples upsampled 3x = 6 output samples, no crash.
+    expect(out.length / 2).toBe(6)
+  })
 })
