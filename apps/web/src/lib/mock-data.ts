@@ -121,6 +121,7 @@ export type VoiceStatus =
   | 'listening'
   | 'finalizing_stt'
   | 'thinking'
+  | 'preparing_tts'
   | 'speaking'
   | 'error_recoverable'
 

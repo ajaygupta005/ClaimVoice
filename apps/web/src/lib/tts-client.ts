@@ -1,6 +1,6 @@
 /**
  * TTS client — asks the voice-agent backend for playable audio. The backend
- * may use Google Cloud TTS or local system TTS; the frontend never holds API keys.
+ * may use Cartesia, Google Cloud TTS, or local system TTS; the frontend never holds API keys.
  */
 
 export interface TtsSynthesizeRequest {
@@ -12,7 +12,7 @@ export interface TtsSynthesizeRequest {
 /** Unified backend response — always 200, branch on ok. */
 export interface TtsSynthesizeResponse {
   ok: boolean
-  provider: 'google' | 'browser' | 'system'
+  provider: 'cartesia' | 'google' | 'browser' | 'system'
   voiceName: string
   mimeType: string
   audioBase64: string
@@ -33,6 +33,30 @@ export async function synthesizeSpeech(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
       signal: AbortSignal.timeout(25_000),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as TtsSynthesizeResponse
+    if (!data.ok || !data.audioBase64) return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Ask the backend to synthesise the final ClaimVoice answer text via Gemini Live.
+ * Returns null on failure so the caller can fall back to browser TTS.
+ * The Gemini API key never leaves the server.
+ */
+export async function synthesizeGeminiSpeech(
+  text: string,
+): Promise<TtsSynthesizeResponse | null> {
+  try {
+    const res = await fetch('/api/voice-agent/gemini-speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(30_000),
     })
     if (!res.ok) return null
     const data = await res.json() as TtsSynthesizeResponse

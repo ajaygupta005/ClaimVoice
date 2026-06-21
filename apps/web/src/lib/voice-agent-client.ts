@@ -92,6 +92,39 @@ function pipeDetails(res: AgentRespondResponse) {
   }
 }
 
+// ── Runtime status ────────────────────────────────────────────────────────────
+
+export type VoiceRuntimeKind =
+  | 'browser'
+  | 'gemini-live-configured'
+  | 'gemini-live-unavailable'
+  | 'fallback'
+
+export interface VoiceRuntimeStatus {
+  runtime: VoiceRuntimeKind
+  model: string
+  voice: string
+  note: string
+  tts_provider?: string    // "cartesia", "google", "system", "browser"
+  tts_voice_name?: string  // display name, e.g. "Skylar"
+}
+
+/**
+ * Fetch the server-side voice runtime classification.
+ * Returns a safe fallback on any network error — never throws.
+ */
+export async function fetchRuntimeStatus(): Promise<VoiceRuntimeStatus> {
+  try {
+    const res = await fetch('/api/voice-agent/runtime', {
+      signal: AbortSignal.timeout(4_000),
+    })
+    if (!res.ok) throw new Error(`status ${res.status}`)
+    return await res.json() as VoiceRuntimeStatus
+  } catch {
+    return { runtime: 'fallback', model: '', voice: '', note: 'Backend unavailable.' }
+  }
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /**

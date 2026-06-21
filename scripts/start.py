@@ -13,6 +13,7 @@ import argparse
 import os
 import platform
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -179,6 +180,19 @@ def _find_tool(name: str) -> str | None:
 # Values are argv prefixes: ["pnpm"] or ["/path/node", "corepack.js", "pnpm"].
 TOOLS: dict[str, list[str]] = {}
 
+
+def _pnpm_node_env(pnpm: list[str]) -> dict[str, str]:
+    """
+    Ensure pnpm lifecycle scripts use the same modern Node runtime used to
+    launch Corepack. Without this, `pnpm --filter ... dev` can start tsx with
+    an older nvm Node from PATH, which breaks Fastify 5.
+    """
+    if len(pnpm) >= 2 and Path(pnpm[0]).name == "node":
+        node_bin_dir = str(Path(pnpm[0]).parent)
+        existing_path = os.environ.get("PATH", "")
+        return {"PATH": f"{node_bin_dir}{os.pathsep}{existing_path}"}
+    return {}
+
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 
 # required=True → hard failure; required=False → warning only
@@ -272,7 +286,15 @@ def install_dependencies() -> None:
 
     # Node (pnpm)
     info("pnpm install ...")
-    r = subprocess.run(pnpm + ["install"], cwd=ROOT, capture_output=True, text=True)
+    install_env = os.environ.copy()
+    install_env.update(_pnpm_node_env(pnpm))
+    r = subprocess.run(
+        pnpm + ["install"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=install_env,
+    )
     if r.returncode != 0:
         err(f"pnpm install failed:\n{r.stderr}")
         sys.exit(1)
@@ -285,6 +307,80 @@ def install_dependencies() -> None:
         err(f"uv sync failed:\n{r.stderr}")
         sys.exit(1)
     ok("uv sync")
+
+
+# ── Voice runtime preflight ───────────────────────────────────────────────────
+
+def _env_value(key: str, default: str = "") -> str:
+    return os.environ.get(key, default).strip()
+
+
+def _is_set(key: str) -> bool:
+    val = _env_value(key)
+    return bool(val) and val.lower() not in {
+        "changeme",
+        "placeholder",
+        "replace_me",
+        "your_key_here",
+        "your-api-key",
+        "dummy",
+    }
+
+
+def _uv_python_import_ok(service_name: str, module_name: str) -> bool:
+    """Check whether a module is importable in the same uv context as a service."""
+    uv = TOOLS.get("uv", ["uv"])
+    service_dir = ROOT / "services" / service_name
+    probe = subprocess.run(
+        uv + ["run", "python", "-c", f"import importlib; importlib.import_module({module_name!r})"],
+        cwd=service_dir,
+        capture_output=True,
+        text=True,
+    )
+    return probe.returncode == 0
+
+
+def validate_voice_runtime_preflight() -> None:
+    """Flag common voice-agent configuration problems before services start."""
+    hdr("Voice runtime preflight")
+
+    runtime = _env_value("CLAIMVOICE_VOICE_RUNTIME", "browser")
+    model = _env_value("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+    voice = _env_value("GEMINI_LIVE_VOICE", "Zephyr")
+
+    if runtime == "gemini-live":
+        info(f"Requested voice runtime: gemini-live  (model={model}, voice={voice})")
+        if _is_set("GEMINI_API_KEY"):
+            ok("GEMINI_API_KEY visible to startup environment")
+        else:
+            warn("CLAIMVOICE_VOICE_RUNTIME=gemini-live but GEMINI_API_KEY is missing/placeholder")
+
+        if _uv_python_import_ok("voice-agent", "google.genai"):
+            ok("google-genai SDK importable for voice-agent")
+        else:
+            warn("google-genai SDK is not importable; Gemini Live will be unavailable and the UI will fall back")
+    else:
+        info(f"Requested voice runtime: {runtime or 'browser'}")
+        if _is_set("GEMINI_API_KEY"):
+            warn("GEMINI_API_KEY is set but CLAIMVOICE_VOICE_RUNTIME is not gemini-live; Gemini will not be used")
+        else:
+            ok("Using browser voice runtime")
+
+    if _env_value("VOICE_AGENT_ANSWER_MODE", "mock") == "claude":
+        if _is_set("ANTHROPIC_API_KEY"):
+            ok("Claude answer mode enabled and ANTHROPIC_API_KEY is set")
+        else:
+            warn("VOICE_AGENT_ANSWER_MODE=claude but ANTHROPIC_API_KEY is missing/placeholder")
+
+    if _env_value("TOOL_MODE", "mock") == "http":
+        missing = [
+            key for key in ["ELIGIBILITY_BASE_URL", "PROVIDERS_BASE_URL"]
+            if not _env_value(key)
+        ]
+        if missing:
+            warn(f"TOOL_MODE=http but missing: {', '.join(missing)}")
+        else:
+            ok("HTTP tool mode configured for Eligibility and Providers")
 
 
 # ── Docker infra ──────────────────────────────────────────────────────────────
@@ -321,6 +417,15 @@ def start_infra() -> None:
 # ── Service launchers ─────────────────────────────────────────────────────────
 
 PIDFILE = ROOT / ".claimvoice.pids"
+SERVICE_PORTS = {
+    "web": 3000,
+    "document-ai": 8001,
+    "eligibility": 8002,
+    "providers": 8003,
+    "voice-agent": 8004,
+    "telephony": 8005,
+    "api-gateway": 8080,
+}
 
 def _spawn(
     label: str,
@@ -374,11 +479,73 @@ def _health_check(label: str, url: str, timeout: int = 30) -> bool:
     return False
 
 
+def _runtime_status_check() -> None:
+    """Report what the running voice-agent thinks the voice runtime is."""
+    url = "http://localhost:8004/api/v1/runtime/status"
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        warn(f"Voice runtime status unavailable at {url}: {exc}")
+        return
+
+    try:
+        import json
+        data = json.loads(body)
+    except Exception:
+        warn(f"Voice runtime status returned non-JSON: {body[:160]}")
+        return
+
+    runtime = str(data.get("runtime", "unknown"))
+    model = str(data.get("model", ""))
+    voice = str(data.get("voice", ""))
+    note = str(data.get("note", ""))
+
+    if runtime == "gemini-live-configured":
+        ok(f"Voice runtime: Gemini Live configured  (model={model}, voice={voice})")
+    elif runtime == "gemini-live-unavailable":
+        warn(f"Voice runtime: Gemini Live unavailable — {note}")
+    elif runtime == "fallback":
+        warn(f"Voice runtime: fallback — {note}")
+    else:
+        ok(f"Voice runtime: {runtime}")
+
+
+def _port_in_use(port: int) -> bool:
+    """Return True when a local TCP port is already accepting connections."""
+    for family, host in [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.25)
+                if sock.connect_ex((host, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _ensure_service_ports_free(ports: dict[str, int]) -> None:
+    """Prevent health checks from accidentally validating stale old services."""
+    occupied = [(label, port) for label, port in ports.items() if _port_in_use(port)]
+    if not occupied:
+        return
+
+    for label, port in occupied:
+        err(f"{label} port {port} is already in use before startup")
+    print()
+    err("Refusing to start because an old process could make health checks lie.")
+    info("Find the stale process with: lsof -nP -iTCP:<port> -sTCP:LISTEN")
+    info("Clear known ClaimVoice ports with: .venv/bin/python scripts/start.py --stop")
+    info("Then rerun: .venv/bin/python scripts/start.py")
+    sys.exit(1)
+
+
 def start_services() -> None:
     hdr("Starting services")
 
     pnpm = TOOLS.get("pnpm", ["pnpm"])
     uv   = TOOLS.get("uv",   ["uv"])
+    node_env = _pnpm_node_env(pnpm)
 
     # Python services use a src/ layout; each service's src/ dir must be on
     # PYTHONPATH so uvicorn can import the package without an editable install.
@@ -388,22 +555,24 @@ def start_services() -> None:
         merged = f"{src_dir}{os.pathsep}{existing}" if existing else src_dir
         return {"PYTHONPATH": merged}
 
-    # (label, command, cwd, extra_env, health_url | None)
-    ServiceDef = tuple[str, list[str], Path, dict[str, str] | None, str | None]
+    # (label, command, cwd, extra_env, health_url | None, health_timeout_seconds)
+    ServiceDef = tuple[str, list[str], Path, dict[str, str] | None, str | None, int]
     services: list[ServiceDef] = [
         (
             "api-gateway",
             pnpm + ["--filter", "@claimvoice/api-gateway", "dev"],
             ROOT,
-            None,
+            node_env,
             "http://localhost:8080/health",
+            30,
         ),
         (
             "telephony",
             pnpm + ["--filter", "@claimvoice/telephony", "dev"],
             ROOT,
-            None,
+            node_env,
             "http://localhost:8005/health",
+            30,
         ),
         (
             "document-ai",
@@ -412,6 +581,7 @@ def start_services() -> None:
             ROOT / "services" / "document-ai",
             _py_env("document-ai"),
             "http://localhost:8001/health",
+            120,
         ),
         (
             "eligibility",
@@ -420,6 +590,7 @@ def start_services() -> None:
             ROOT / "services" / "eligibility",
             _py_env("eligibility"),
             "http://localhost:8002/health",
+            30,
         ),
         (
             "providers",
@@ -428,6 +599,7 @@ def start_services() -> None:
             ROOT / "services" / "providers",
             _py_env("providers"),
             "http://localhost:8003/health",
+            30,
         ),
         (
             "voice-agent",
@@ -436,20 +608,24 @@ def start_services() -> None:
             ROOT / "services" / "voice-agent",
             _py_env("voice-agent"),
             "http://localhost:8004/health",
+            30,
         ),
         (
             "web",
             pnpm + ["--filter", "@claimvoice/web", "dev"],
             ROOT,
-            None,
+            node_env,
             None,  # Next.js takes too long on first build; skip health-check
+            0,
         ),
     ]
+
+    _ensure_service_ports_free(SERVICE_PORTS)
 
     pids: list[str] = []
     failed: list[str] = []
 
-    for label, cmd, cwd, extra_env, health_url in services:
+    for label, cmd, cwd, extra_env, health_url, _health_timeout in services:
         proc = _spawn(label, cmd, cwd, extra_env)
         pids.append(f"{label}:{proc.pid}")
         info(f"spawned {label}  (pid {proc.pid})  →  .logs/{label}.log")
@@ -458,10 +634,10 @@ def start_services() -> None:
 
     # Health-check pass: verify each service that exposes /health
     hdr("Waiting for services to be healthy")
-    for label, _cmd, _cwd, _extra_env, health_url in services:
+    for label, _cmd, _cwd, _extra_env, health_url, health_timeout in services:
         if health_url is None:
             continue
-        if _health_check(label, health_url, timeout=30):
+        if _health_check(label, health_url, timeout=health_timeout):
             ok(f"{label}  {health_url}")
         else:
             failed.append(label)
@@ -470,9 +646,12 @@ def start_services() -> None:
         print()
         err(f"The following services failed to start: {', '.join(failed)}")
         err("Check .logs/<service>.log for details, then re-run after fixing.")
+        info("Cleaning up spawned services after failed startup ...")
+        stop_services()
         sys.exit(1)
 
     hdr("All services healthy")
+    _runtime_status_check()
     print()
     info("  Web app        →  http://localhost:3000")
     info("  API gateway    →  http://localhost:8080")
@@ -490,34 +669,99 @@ def start_services() -> None:
     print()
 
 
+def _listening_pids_for_port(port: int) -> list[int]:
+    """Return PIDs listening on a local TCP port, using lsof when available."""
+    if IS_WINDOWS:
+        return []
+
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return []
+
+    result = subprocess.run(
+        [lsof, "-tiTCP:%s" % port, "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode not in (0, 1):
+        return []
+
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        if pid != os.getpid() and pid not in pids:
+            pids.append(pid)
+    return pids
+
+
+def _stop_stale_port_listeners() -> None:
+    """Best-effort cleanup for reload child processes left on ClaimVoice ports."""
+    if IS_WINDOWS:
+        warn("Skipping stale port cleanup on Windows; use Task Manager if a port remains busy")
+        return
+
+    import signal
+
+    stopped = 0
+    for label, port in SERVICE_PORTS.items():
+        for pid in _listening_pids_for_port(port):
+            try:
+                os.kill(pid, signal.SIGTERM)
+                ok(f"stale {label} listener on port {port} (pid {pid}) stopped")
+                stopped += 1
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                warn(f"stale {label} listener on port {port} (pid {pid}) could not be stopped")
+
+    if stopped == 0:
+        ok("No stale ClaimVoice port listeners")
+        return
+
+    time.sleep(0.5)
+    still_busy = [
+        f"{label}:{port}" for label, port in SERVICE_PORTS.items()
+        if _listening_pids_for_port(port)
+    ]
+    if still_busy:
+        warn(f"Some ports are still busy after SIGTERM: {', '.join(still_busy)}")
+
+
 # ── Stop ──────────────────────────────────────────────────────────────────────
 
 def stop_services() -> None:
     hdr("Stopping services")
     if not PIDFILE.exists():
         warn("No .claimvoice.pids file found — nothing to stop")
-        return
+    else:
+        import signal
 
-    import signal
+        for entry in PIDFILE.read_text().splitlines():
+            if ":" not in entry:
+                continue
+            label, _, pid_str = entry.partition(":")
+            try:
+                pid = int(pid_str)
+                if IS_WINDOWS:
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                   capture_output=True)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+                ok(f"{label} (pid {pid}) stopped")
+            except (ProcessLookupError, PermissionError):
+                warn(f"{label} (pid {pid}) was already gone")
+            except ValueError:
+                warn(f"Unreadable pid entry: {entry!r}")
 
-    for entry in PIDFILE.read_text().splitlines():
-        if ":" not in entry:
-            continue
-        label, _, pid_str = entry.partition(":")
-        try:
-            pid = int(pid_str)
-            if IS_WINDOWS:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True)
-            else:
-                os.kill(pid, signal.SIGTERM)
-            ok(f"{label} (pid {pid}) stopped")
-        except (ProcessLookupError, PermissionError):
-            warn(f"{label} (pid {pid}) was already gone")
-        except ValueError:
-            warn(f"Unreadable pid entry: {entry!r}")
+        PIDFILE.unlink()
 
-    PIDFILE.unlink()
+    _stop_stale_port_listeners()
 
     # Also stop docker infra
     info("Stopping Docker infra ...")
@@ -558,6 +802,7 @@ def main() -> None:
 
     load_env()
     install_dependencies()
+    validate_voice_runtime_preflight()
     start_infra()
     start_services()
 

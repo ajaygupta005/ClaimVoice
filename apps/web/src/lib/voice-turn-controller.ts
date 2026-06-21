@@ -20,6 +20,7 @@ export type TurnState =
   | 'listening'
   | 'finalizing_stt'
   | 'thinking'
+  | 'preparing_tts'
   | 'speaking'
   | 'error_recoverable'
 
@@ -75,7 +76,7 @@ export class VoiceTurnController {
         this.diag.sttError ??= 'whole_turn_timeout'
       } else if (this._state === 'thinking') {
         this.diag.backendError ??= 'whole_turn_timeout'
-      } else if (this._state === 'speaking') {
+      } else if (this._state === 'preparing_tts' || this._state === 'speaking') {
         this.diag.ttsError ??= 'whole_turn_timeout'
       }
       this.cleanup('whole_turn_timeout')
@@ -205,7 +206,7 @@ export class VoiceTurnController {
 
   backendSuccess() {
     this.diag.backendEnd = Date.now()
-    this.transition('speaking')
+    this.transition('preparing_tts')
   }
 
   backendFailed(reason: string) {
@@ -226,45 +227,79 @@ export class VoiceTurnController {
     this.diag.ttsProvider = provider
     this.diag.ttsStart    = Date.now()
 
-    const binary = atob(audioBase64)
-    const bytes  = new Uint8Array(binary.length)
+    let binary = ''
+    try {
+      binary = atob(audioBase64)
+    } catch {
+      this.diag.ttsError = 'bad_base64_audio'
+      onDone()
+      return
+    }
+    const bytes = new Uint8Array(binary.length)
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-    const blob = new Blob([bytes], { type: mimeType })
-    const url  = URL.createObjectURL(blob)
+    if (bytes.length === 0) {
+      this.diag.ttsError = 'empty_audio'
+      onDone()
+      return
+    }
+    const blob = new Blob([bytes], { type: mimeType || 'audio/wav' })
+    const url = URL.createObjectURL(blob)
 
     const el = new Audio(url)
     this.audioEl = el
 
-    this.ttsTimer = setTimeout(() => {
+    let done = false
+    const finish = (reason: string) => {
       if (this.cleanedUp) return
-      el.pause()
-      this.diag.ttsError = 'timeout'
-      URL.revokeObjectURL(url)
-      onDone()
-    }, 30_000 + TTS_EXTRA_BUFFER_MS)
-
-    el.onended = () => {
-      if (this.cleanedUp) return
+      if (done) return
+      done = true
       this.clearTtsTimer()
-      this.diag.ttsEnd = Date.now()
+      try { el.pause() } catch { /* ignore */ }
+      if (this.audioEl === el) this.audioEl = null
+      if (reason === 'ended') this.diag.ttsEnd = Date.now()
+      else this.diag.ttsError = reason
       URL.revokeObjectURL(url)
       onDone()
     }
-    el.onerror = () => {
-      if (this.cleanedUp) return
+
+    const armWatchdog = (reason: string, ms: number) => {
       this.clearTtsTimer()
-      this.diag.ttsError = 'audio_error'
-      URL.revokeObjectURL(url)
-      onDone()
+      this.ttsTimer = setTimeout(() => finish(reason), ms)
+    }
+
+    const markPlaybackStarted = () => {
+      if (this.cleanedUp) return
+      if (this._state === 'preparing_tts') this.transition('speaking')
+    }
+
+    // First watchdog: if Chrome accepts play() but never emits playback events,
+    // do not leave the turn in "preparing_tts" until the whole-turn timeout.
+    armWatchdog('audio_start_timeout', 5_000)
+
+    el.onended = () => {
+      finish('ended')
+    }
+    el.onerror = () => {
+      finish('audio_error')
+    }
+    el.onplaying = () => {
+      markPlaybackStarted()
+      const durationMs = Number.isFinite(el.duration) && el.duration > 0
+        ? Math.ceil(el.duration * 1_000) + TTS_EXTRA_BUFFER_MS
+        : Math.max(bytes.length / 16, 3_000) + TTS_EXTRA_BUFFER_MS
+      armWatchdog('audio_end_timeout', Math.min(Math.max(durationMs, 3_000), 30_000))
+    }
+    el.onloadedmetadata = () => {
+      if (!done && Number.isFinite(el.duration) && el.duration > 0) {
+        const durationMs = Math.ceil(el.duration * 1_000) + TTS_EXTRA_BUFFER_MS
+        armWatchdog('audio_end_timeout', Math.min(Math.max(durationMs, 3_000), 30_000))
+      }
     }
     try {
       await el.play()
+      markPlaybackStarted()
     } catch {
-      if (this.cleanedUp) return
-      this.clearTtsTimer()
-      this.diag.ttsError = 'play_rejected'
-      URL.revokeObjectURL(url)
-      onDone()
+      finish('play_rejected')
     }
   }
 
@@ -366,6 +401,8 @@ export class VoiceTurnController {
     this.speechUtterance = null
     if (this.audioEl) {
       this.audioEl.pause()
+      this.audioEl.removeAttribute('src')
+      try { this.audioEl.load() } catch { /* ignore */ }
       this.audioEl = null
     }
   }

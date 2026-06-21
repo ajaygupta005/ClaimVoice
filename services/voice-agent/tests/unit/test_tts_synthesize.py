@@ -16,10 +16,14 @@ def client() -> TestClient:
 
 def test_tts_browser_provider_uses_system_audio_when_available(client: TestClient) -> None:
     """Default browser provider should still return server audio when local TTS exists."""
-    with patch(
-        "voice_agent.api.v1.tts_synthesize._system_synthesize",
-        return_value=("UklGRg==", "Samantha", "audio/wav"),
+    with (
+        patch("voice_agent.api.v1.tts_synthesize.settings") as mock_settings,
+        patch(
+            "voice_agent.api.v1.tts_synthesize._system_synthesize",
+            return_value=("UklGRg==", "Samantha", "audio/wav"),
+        ),
     ):
+        mock_settings.voice_agent_tts_provider = "browser"
         res = client.post("/api/v1/tts/synthesize", json={"text": "Hello world"})
     assert res.status_code == 200
     data = res.json()
@@ -32,10 +36,14 @@ def test_tts_browser_provider_uses_system_audio_when_available(client: TestClien
 
 def test_tts_returns_unavailable_when_system_tts_fails(client: TestClient) -> None:
     """If server-side TTS is unavailable, keep returning 200 with browser fallback."""
-    with patch(
-        "voice_agent.api.v1.tts_synthesize._system_synthesize",
-        side_effect=RuntimeError("system_tts_say_unavailable"),
+    with (
+        patch("voice_agent.api.v1.tts_synthesize.settings") as mock_settings,
+        patch(
+            "voice_agent.api.v1.tts_synthesize._system_synthesize",
+            side_effect=RuntimeError("system_tts_say_unavailable"),
+        ),
     ):
+        mock_settings.voice_agent_tts_provider = "browser"
         res = client.post("/api/v1/tts/synthesize", json={"text": "Hello world"})
     assert res.status_code == 200
     data = res.json()
@@ -77,6 +85,50 @@ def test_tts_google_error_returns_unavailable(client: TestClient) -> None:
     data = res.json()
     assert data["ok"] is True
     assert data["provider"] == "system"
+
+
+def test_tts_cartesia_provider_returns_cartesia_audio(client: TestClient) -> None:
+    """When provider=cartesia succeeds, return Cartesia audio directly."""
+    with (
+        patch("voice_agent.api.v1.tts_synthesize.settings") as mock_settings,
+        patch(
+            "voice_agent.api.v1.tts_synthesize._cartesia_synthesize",
+            return_value=("UklGRg==", "cartesia-voice"),
+        ),
+    ):
+        mock_settings.voice_agent_tts_provider = "cartesia"
+        mock_settings.cartesia_api_key = "test-key"
+        mock_settings.cartesia_voice_id = "cartesia-voice"
+        mock_settings.cartesia_tts_model = "sonic-2"
+        res = client.post("/api/v1/tts/synthesize", json={"text": "Hello"})
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["provider"] == "cartesia"
+    assert data["voiceName"] == "cartesia-voice"
+    assert data["mimeType"] == "audio/wav"
+    assert data["audioBase64"] == "UklGRg=="
+
+
+def test_tts_cartesia_error_falls_back_to_system(client: TestClient) -> None:
+    """Cartesia outages should not strand the browser without a fallback."""
+    with (
+        patch("voice_agent.api.v1.tts_synthesize.settings") as mock_settings,
+        patch("voice_agent.api.v1.tts_synthesize._cartesia_synthesize", side_effect=RuntimeError("no_cartesia")),
+        patch(
+            "voice_agent.api.v1.tts_synthesize._system_synthesize",
+            return_value=("UklGRg==", "Samantha", "audio/wav"),
+        ),
+    ):
+        mock_settings.voice_agent_tts_provider = "cartesia"
+        res = client.post("/api/v1/tts/synthesize", json={"text": "Hello"})
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["provider"] == "system"
+    assert data["voiceName"] == "Samantha"
 
 
 def test_tts_does_not_affect_agent_respond(client: TestClient) -> None:
