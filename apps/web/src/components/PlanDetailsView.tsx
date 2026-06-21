@@ -1,11 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ShieldCheck, AlertTriangle, MessageCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import {
   mockMember, mockPlan, mockCostSummary,
   mockCoverageHighlights, mockPriorAuthNotes, mockExampleQuestions,
 } from '@/lib/mock-data'
+
+const MEMBER_ID = 'CVX-0042-MT'  // demo member until auth-based member context lands
+const usd = (cents: number) => '$' + Math.round((cents ?? 0) / 100).toLocaleString()
 
 // ── Deductible progress bar ───────────────────────────────────────────────────
 
@@ -50,6 +53,66 @@ function Section({ title, icon, children }: {
 export default function PlanDetailsView() {
   const [paExpanded, setPaExpanded] = useState(false)
 
+  // Live data with mock as the initial value + graceful fallback (offline / API down).
+  const [member, setMember]           = useState(mockMember)
+  const [plan, setPlan]               = useState(mockPlan)
+  const [costSummary, setCostSummary] = useState(mockCostSummary)
+  const [live, setLive]               = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const s = await fetch(`/api/eligibility/members/${MEMBER_ID}/summary`)
+          .then(r => (r.ok ? r.json() : null))
+        if (!cancelled && s?.member && s?.plan) {
+          setMember({
+            name: s.member.name ?? mockMember.name,
+            plan: s.plan.name ?? mockMember.plan,
+            status: s.member.eligibilityStatus ?? mockMember.status,
+            memberId: s.member.memberId ?? mockMember.memberId,
+          })
+          setPlan({
+            ...mockPlan,
+            planName: s.plan.name ?? mockPlan.planName,
+            carrier: s.plan.issuer ?? mockPlan.carrier,
+            planType: s.plan.type ?? mockPlan.planType,
+            metalLevel: s.plan.metalLevel ?? mockPlan.metalLevel,
+            planYear: s.plan.year ?? mockPlan.planYear,
+          })
+          setLive(true)
+        }
+
+        const c = await fetch('/api/eligibility/cost/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memberId: MEMBER_ID, costType: 'deductible' }),
+        }).then(r => (r.ok ? r.json() : null))
+        if (!cancelled && c && c.deductibleTotalCents != null) {
+          setCostSummary([
+            {
+              label: 'Individual Deductible',
+              value: usd(c.deductibleTotalCents),
+              used: usd(c.deductibleSpentCents),
+              max: usd(c.deductibleTotalCents),
+              note: 'In-network, applied this plan year',
+            },
+            {
+              label: 'Out-of-Pocket Maximum',
+              value: usd(c.oopMaxCents),
+              used: usd(c.oopSpentCents),
+              max: usd(c.oopMaxCents),
+              note: 'In-network',
+            },
+          ])
+        }
+      } catch {
+        /* keep mock fallback */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <div className="space-y-6">
 
@@ -57,7 +120,8 @@ export default function PlanDetailsView() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Plan Details</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-          Coverage summary for {mockMember.name} · {mockPlan.planYear}
+          Coverage summary for {member.name} · {plan.planYear}
+          {live && <span className="ml-2 text-xs text-green-600 dark:text-green-400">● live</span>}
         </p>
       </div>
 
@@ -66,21 +130,21 @@ export default function PlanDetailsView() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">Member</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{mockMember.name}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{mockMember.memberId} · Group {mockPlan.groupNumber}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{member.name}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{member.memberId} · Group {plan.groupNumber}</p>
           </div>
           <div className="text-right">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">Plan</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{mockPlan.planName}</p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{mockPlan.carrier} · {mockPlan.planType}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{plan.planName}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{plan.carrier} · {plan.planType}</p>
           </div>
         </div>
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-3 flex-wrap">
           {[
-            { label: 'Metal Level', value: mockPlan.metalLevel },
-            { label: 'Network',     value: mockPlan.network },
-            { label: 'Effective',   value: mockPlan.effectiveDate },
-            { label: 'Status',      value: mockMember.status },
+            { label: 'Metal Level', value: plan.metalLevel },
+            { label: 'Network',     value: plan.network },
+            { label: 'Effective',   value: plan.effectiveDate },
+            { label: 'Status',      value: member.status },
           ].map(({ label, value }) => (
             <div key={label} className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <p className="text-xs text-slate-400 dark:text-slate-500">{label}</p>
@@ -93,7 +157,7 @@ export default function PlanDetailsView() {
       {/* Cost summary */}
       <Section title="Deductibles, Copays & Out-of-Pocket" icon={<ShieldCheck size={15} />}>
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
-          {mockCostSummary.map(row => (
+          {costSummary.map(row => (
             <div key={row.label} className="px-5 py-3 flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{row.label}</p>

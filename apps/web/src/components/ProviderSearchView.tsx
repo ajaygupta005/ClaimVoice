@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Search, MapPin, Phone, Star, ShieldCheck, ShieldOff,
   UserCheck, UserX, ChevronRight, Info,
@@ -179,11 +179,51 @@ export default function ProviderSearchView() {
   const [query, setQuery]               = useState('')
   const [specialty, setSpecialty]       = useState('All specialties')
   const [maxDist, setMaxDist]           = useState(5)
-  const [networkOnly, setNetworkOnly]   = useState(true)
+  const [networkOnly, setNetworkOnly]   = useState(false)
   const [acceptingOnly, setAccepting]   = useState(false)
   const [selectedId, setSelectedId]     = useState<string | null>(mockProviders[0].id)
+  const [providers, setProviders]       = useState<Provider[]>(mockProviders)
 
-  const filtered = useMemo(() => mockProviders.filter(p => {
+  // Fetch live in-area providers (WS-5); mock stays as a graceful fallback.
+  useEffect(() => {
+    const sp = specialty === 'All specialties' ? 'internal medicine' : specialty
+    const qs = new URLSearchParams({ specialty: sp, lat: '40.7580', lng: '-73.9855', radiusKm: '40', limit: '25' })
+    fetch(`/api/providers/near?${qs.toString()}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { providers?: unknown[] } | null) => {
+        const rows = d?.providers
+        if (!Array.isArray(rows) || rows.length === 0) return
+        const mapped: Provider[] = rows.map((raw, i) => {
+          const p = raw as Record<string, unknown>
+          const num = (v: unknown) => (typeof v === 'number' ? v : 0)
+          const str = (v: unknown) => (typeof v === 'string' ? v : '')
+          const km = num(p.distanceKm)
+          return {
+            id: str(p.id) || str(p.npi) || String(i),
+            name: str(p.organizationName) || [str(p.firstName), str(p.lastName)].filter(Boolean).join(' ') || 'Provider',
+            specialty: str(p.specialty) || str(p.taxonomyDescription) || 'Provider',
+            subspecialty: str(p.taxonomyDescription) && str(p.taxonomyDescription) !== str(p.specialty) ? str(p.taxonomyDescription) : '',
+            distanceMi: Math.round(km * 0.621371 * 10) / 10,
+            inNetwork: Boolean(p.inNetwork),
+            acceptingPatients: p.acceptingNewPatients == null ? true : Boolean(p.acceptingNewPatients),
+            rating: num(p.qualityRating),
+            reviewCount: 0,
+            address: [str(p.addressLine1), str(p.city), str(p.state)].filter(Boolean).join(', ') + (str(p.zip) ? ' ' + str(p.zip) : ''),
+            neighborhood: str(p.city),
+            phone: str(p.phone),
+            npi: str(p.npi),
+            note: str(p.hospitalName) ? `Affiliated with ${str(p.hospitalName)}` : '',
+            lat: 0,
+            lng: 0,
+          }
+        })
+        setProviders(mapped)
+        setSelectedId(mapped[0]?.id ?? null)
+      })
+      .catch(() => { /* keep mock fallback */ })
+  }, [specialty])
+
+  const filtered = useMemo(() => providers.filter(p => {
     if (networkOnly && !p.inNetwork) return false
     if (acceptingOnly && !p.acceptingPatients) return false
     if (p.distanceMi > maxDist) return false
@@ -193,9 +233,9 @@ export default function ProviderSearchView() {
       return p.name.toLowerCase().includes(q) || p.specialty.toLowerCase().includes(q) || p.neighborhood.toLowerCase().includes(q)
     }
     return true
-  }), [query, specialty, maxDist, networkOnly, acceptingOnly])
+  }), [providers, query, specialty, maxDist, networkOnly, acceptingOnly])
 
-  const selected = mockProviders.find(p => p.id === selectedId) ?? null
+  const selected = providers.find(p => p.id === selectedId) ?? null
 
   return (
     <div className="space-y-5">
