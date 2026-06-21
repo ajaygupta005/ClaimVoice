@@ -178,22 +178,22 @@ def test_in_network_no_null_procedure_code(db):
 # ── File-based tests (no DB required) ────────────────────────────────────────
 
 def test_synthetic_cards_png_count():
-    """Synthetic card generator: exactly 100 PNG files produced."""
+    """Synthetic card generator: exactly 160 PNG files produced (8 payors × 20)."""
     cards_dir = _DATA_DIR / "processed" / "synthetic_cards"
     pngs = list(cards_dir.glob("*.png"))
-    assert len(pngs) == 100, f"synthetic_cards: expected 100 PNGs, got {len(pngs)}"
+    assert len(pngs) == 160, f"synthetic_cards: expected 160 PNGs, got {len(pngs)}"
 
 
 def test_synthetic_cards_labels_jsonl():
-    """Synthetic card generator: labels.jsonl has exactly 100 entries."""
+    """Synthetic card generator: labels.jsonl has exactly 160 entries."""
     labels_file = _DATA_DIR / "processed" / "synthetic_cards" / "labels.jsonl"
     assert labels_file.exists(), "labels.jsonl not found"
     lines = [ln for ln in labels_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    assert len(lines) == 100, f"labels.jsonl: expected 100 lines, got {len(lines)}"
+    assert len(lines) == 160, f"labels.jsonl: expected 160 lines, got {len(lines)}"
 
 
 def test_synthetic_cards_labels_fields():
-    """Each labels.jsonl entry has all 10 required field keys."""
+    """Each labels.jsonl entry has all 12 required field keys."""
     import json
 
     labels_file = _DATA_DIR / "processed" / "synthetic_cards" / "labels.jsonl"
@@ -201,9 +201,9 @@ def test_synthetic_cards_labels_fields():
         pytest.skip("labels.jsonl not yet generated")
 
     required_keys = {
-        "member_id", "first_name", "last_name", "dob",
-        "group_number", "plan_name", "rx_bin", "rx_pcn",
-        "effective_date", "phone",
+        "carrier", "plan_name", "plan_type", "name", "dob",
+        "effective_date", "member_id", "group_number",
+        "rx_bin", "rx_pcn", "rx_group", "phone",
     }
     for i, line in enumerate(labels_file.read_text(encoding="utf-8").splitlines()):
         if not line.strip():
