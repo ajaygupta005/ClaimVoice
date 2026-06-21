@@ -4,7 +4,15 @@ embed:
   overlap: 50              # word overlap between consecutive chunks
   min_chunk_words: 20      # skip sections shorter than this
   voyage_model: "voyage-4-large"
-  voyage_batch_size: 128   # texts per Voyage API call (SDK limit)
-  voyage_sleep_s: 1.0      # sleep between batches (free-tier rate limit guard)
+  voyage_batch_size: 128   # texts per embed API call
+  voyage_sleep_s: 0.0      # inter-batch sleep (Azure limits are generous)
   database_url: ${oc.env:DATABASE_URL,postgresql://claimvoice:changeme@localhost:5432/claimvoice}
   voyage_api_key: ${oc.env:VOYAGE_API_KEY,""}
+
+  # Embedding provider: "azure" (text-embedding-3-large) default; "voyage" fallback.
+  provider: ${oc.env:SBC_EMBED_PROVIDER,azure}
+  embed_dimensions: 1024
+  azure_endpoint: ${oc.env:AZURE_OPENAI_ENDPOINT,""}
+  azure_api_key: ${oc.env:AZURE_OPENAI_API_KEY,""}
+  azure_api_version: ${oc.env:AZURE_OPENAI_API_VERSION,2024-12-01-preview}
+  azure_deployment: ${oc.env:FOUNDRY_DEPLOYMENT_EMBEDDING,text-embedding-3-large}

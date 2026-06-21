@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SBC Chunk & Embed Ingest: Parse SBC PDFs, chunk section text, embed with
-Voyage AI voyage-4-large, and store in the sbc_chunks pgvector table.
+Azure OpenAI text-embedding-3-large (Voyage fallback), and store in sbc_chunks (pgvector).
 
 Must run after:
   - alembic upgrade head  (creates sbc_chunks table)
@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-import voyageai
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 
@@ -64,17 +63,38 @@ def chunk_text(text: str, chunk_size: int = 400, overlap: int = 50) -> list[str]
 
 
 # ---------------------------------------------------------------------------
-# Voyage AI embedding
+# Embedding — provider-dispatched (Azure OpenAI default, Voyage fallback)
 # ---------------------------------------------------------------------------
 
-def embed_batch(
-    client: voyageai.Client,
-    texts: list[str],
-    model: str,
-) -> list[list[float]]:
-    """Embed a batch of texts using Voyage AI. Returns one vector per text."""
-    result = client.embed(texts, model=model, input_type="document")
-    return result.embeddings
+class _Embedder:
+    """Embed document texts via the configured provider; one vector per text."""
+
+    def __init__(self, cfg: Any) -> None:
+        self.provider = str(cfg.embed.provider).lower()
+        self.dims = int(cfg.embed.embed_dimensions)
+        if self.provider == "azure":
+            from openai import AzureOpenAI
+
+            self._client = AzureOpenAI(
+                azure_endpoint=cfg.embed.azure_endpoint,
+                api_key=cfg.embed.azure_api_key,
+                api_version=cfg.embed.azure_api_version,
+            )
+            self._model = cfg.embed.azure_deployment
+        else:
+            import voyageai
+
+            self._client = voyageai.Client(api_key=cfg.embed.voyage_api_key)
+            self._model = cfg.embed.voyage_model
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if self.provider == "azure":
+            resp = self._client.embeddings.create(
+                input=texts, model=self._model, dimensions=self.dims
+            )
+            return [d.embedding for d in resp.data]
+        result = self._client.embed(texts, model=self._model, input_type="document")
+        return result.embeddings
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +174,7 @@ def bulk_insert_chunks(
 
 def ingest_pdf(
     conn: psycopg.Connection,
-    voyage_client: voyageai.Client,
+    embedder: _Embedder,
     cfg: Any,
     pdf_path: Path,
     plan_name: str,
@@ -267,7 +287,7 @@ def ingest_pdf(
         )
         for attempt in range(4):
             try:
-                embeddings = embed_batch(voyage_client, batch, cfg.embed.voyage_model)
+                embeddings = embedder.embed(batch)
                 last_embed_time["t"] = time.monotonic()
                 break
             except Exception as exc:
@@ -344,11 +364,16 @@ def main() -> None:
 
     logger.info("Config:\n%s", OmegaConf.to_yaml(cfg))
 
-    voyage_api_key: str = cfg.embed.voyage_api_key
-    if not voyage_api_key:
-        logger.error(
-            "VOYAGE_API_KEY is not set. Export it or add it to .env before running."
-        )
+    provider = str(cfg.embed.provider).lower()
+    if provider == "azure":
+        if not cfg.embed.azure_api_key or not cfg.embed.azure_endpoint:
+            logger.error(
+                "Azure embeddings selected but AZURE_OPENAI_API_KEY / AZURE_OPENAI_ENDPOINT "
+                "are not set. Add them to .env before running."
+            )
+            sys.exit(1)
+    elif not cfg.embed.voyage_api_key:
+        logger.error("VOYAGE_API_KEY is not set. Add it to .env before running.")
         sys.exit(1)
 
     sbc_dir = Path(cfg.embed.sbc_dir)
@@ -366,7 +391,8 @@ def main() -> None:
     logger.info("Found %d PDF file(s) in %s", len(pdf_files), sbc_dir)
 
     manifest = _load_manifest(cfg)
-    voyage_client = voyageai.Client(api_key=voyage_api_key)
+    embedder = _Embedder(cfg)
+    logger.info("Embedding provider: %s (dims=%s)", provider, cfg.embed.embed_dimensions)
 
     database_url: str = cfg.embed.database_url
     with psycopg.connect(database_url) as conn:
@@ -382,7 +408,7 @@ def main() -> None:
                 skipped += 1
                 continue
 
-            ingest_pdf(conn, voyage_client, cfg, pdf_path, plan_name, last_embed_time)
+            ingest_pdf(conn, embedder, cfg, pdf_path, plan_name, last_embed_time)
             processed += 1
 
     logger.info(

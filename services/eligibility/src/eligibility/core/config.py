@@ -14,8 +14,19 @@ class Settings(BaseSettings):
     # "claude" = LLM entailment over (answer, facts).
     fact_check_mode: Literal["mock", "claude"] = "mock"
 
-    voyage_api_key: str = ""  # required for sbc_embed_ingest and sbc_rag
+    voyage_api_key: str = ""  # SBC RAG embeddings — Voyage fallback provider
 
+    # SBC RAG embeddings — provider + Azure OpenAI creds (active by default).
+    sbc_embed_provider: Literal["azure", "voyage"] = "azure"
+    embedding_dimensions: int = 1024
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2024-12-01-preview"
+    foundry_deployment_embedding: str = "text-embedding-3-large"
+
+    # SBC RAG enrichment of coverage answers (best-effort; off when no embed key).
+    sbc_rag_in_coverage: bool = True
+    sbc_rag_top_k: int = 2
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -5,8 +5,42 @@ from __future__ import annotations
 
 from typing import Any
 
+from loguru import logger
+
+from eligibility.core.config import settings
 from eligibility.lib.money import cents_to_usd
 from eligibility.schemas.coverage import CoverageResponse
+
+
+def sbc_facts_for(plan_id: Any, service: str) -> list[str]:
+    """Retrieve SBC passages for the plan as extra grounding facts.
+
+    Called from the /coverage endpoint (not from the pure builder) so unit tests
+    of build_coverage_response stay offline. Best-effort: returns [] when
+    disabled, no embedding key, no chunks, or any error.
+    """
+    if not settings.sbc_rag_in_coverage:
+        return []
+    has_key = bool(
+        (settings.sbc_embed_provider == "azure" and settings.azure_openai_api_key)
+        or settings.voyage_api_key
+    )
+    if not has_key:
+        return []
+    try:
+        from eligibility.services.sbc_rag import retrieve_chunks
+
+        resp = retrieve_chunks(plan_id, service, top_k=settings.sbc_rag_top_k)
+        facts: list[str] = []
+        for chunk in resp.chunks:
+            text = " ".join(chunk.chunkText.split())[:400]
+            facts.append(
+                f"From the plan's Summary of Benefits ({chunk.sectionName}): {text}"
+            )
+        return facts
+    except Exception as exc:  # noqa: BLE001 — enrichment must never break coverage
+        logger.warning("SBC RAG enrichment skipped: {}", exc)
+        return []
 
 
 def build_coverage_response(

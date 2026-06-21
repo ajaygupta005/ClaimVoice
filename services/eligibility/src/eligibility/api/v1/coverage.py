@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from eligibility.lib.db import db_session
 from eligibility.repositories.member_repo import get_coverage
 from eligibility.schemas.coverage import CoverageResponse
-from eligibility.services.coverage import build_coverage_response
+from eligibility.services.coverage import build_coverage_response, sbc_facts_for
 
 router = APIRouter()
 
@@ -24,4 +24,6 @@ def coverage(
     if result is None:
         raise HTTPException(status_code=404, detail=f"Member '{memberId}' not found")
 
-    return build_coverage_response(result, service, networkType)
+    resp = build_coverage_response(result, service, networkType)
+    resp.facts.extend(sbc_facts_for(resp.planId, service))  # best-effort SBC grounding
+    return resp

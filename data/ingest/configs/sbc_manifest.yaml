@@ -12,35 +12,35 @@ sbcs:
 
     - url: "https://www.aetna.com/content/dam/aetna/pdfs/health-plans/individual-and-family/sbc/2026/aetna-silver-sbc-2026.pdf"
       payor: "aetna"
-      plan_name: "Aetna Silver 3500"
+      plan_name: "ClaimVoice Demo PPO"   # mapped to the demo member's plan for SBC grounding
       plan_year: 2026
 
     - url: "https://www.uhcsr.com/content/dam/b2c/health/documents/sbc/2026/uhc-bronze-sbc-2026.pdf"
       payor: "uhc"
-      plan_name: "UHC Choice Plus Bronze"
+      plan_name: "UHC Bronze Select"
       plan_year: 2026
 
     - url: "https://www.uhcsr.com/content/dam/b2c/health/documents/sbc/2026/uhc-silver-sbc-2026.pdf"
       payor: "uhc"
-      plan_name: "UHC Choice Plus Silver"
+      plan_name: "UHC Silver Choice"
       plan_year: 2026
 
     - url: "https://www.bcbsnc.com/assets/services/public/pdfs/sbc/2026/bcbs-bronze-sbc-2026.pdf"
       payor: "bcbs"
-      plan_name: "BCBS Blue Value Bronze"
+      plan_name: "BCBS Bronze BlueSelect"
       plan_year: 2026
 
     - url: "https://www.bcbsnc.com/assets/services/public/pdfs/sbc/2026/bcbs-silver-sbc-2026.pdf"
       payor: "bcbs"
-      plan_name: "BCBS Blue Value Silver"
+      plan_name: "BCBS Silver BlueCare"
       plan_year: 2026
 
     - url: "https://www.cigna.com/content/dam/cigna-b2c/pdfs/sbc/2026/cigna-connect-bronze-sbc-2026.pdf"
       payor: "cigna"
-      plan_name: "Cigna Connect 5700"
+      plan_name: "Cigna Connect Bronze"
       plan_year: 2026
 
     - url: "https://www.cigna.com/content/dam/cigna-b2c/pdfs/sbc/2026/cigna-connect-silver-sbc-2026.pdf"
       payor: "cigna"
-      plan_name: "Cigna Connect 3500"
+      plan_name: "Cigna Connect Silver"
       plan_year: 2026
