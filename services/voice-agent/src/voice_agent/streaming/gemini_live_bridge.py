@@ -256,9 +256,9 @@ class _RealGeminiLiveSession(GeminiLiveSession):
     """
     Wraps the google.genai live session.
 
-    The google-genai SDK is not in pyproject.toml for this service — it is
-    lazy-imported so the module remains importable (and testable) without it.
-    If the SDK is absent the factory falls back to _UnavailableBridge.
+    The google-genai SDK is lazy-imported so the module remains importable
+    in fallback/test environments. If the SDK is absent, the runtime status
+    reports Gemini Live unavailable and the UI falls back to browser voice.
 
     Gemini Live is used exclusively as a voice I/O layer:
     - audio in  → ASR transcript → hand to ClaimVoice agent graph
@@ -301,12 +301,13 @@ class _RealGeminiLiveSession(GeminiLiveSession):
         PCM bytes until turn_complete, then returns the concatenation.
         """
         pcm_parts: list[bytes] = []
+        logger.info("gemini_live.speak_text_start", text_len=len(text))
         try:
             await self._live.send_client_content(  # type: ignore[attr-defined]
                 turns=[{"role": "user", "parts": [{"text": text}]}],
                 turn_complete=True,
             )
-            async for raw in self._live:  # type: ignore[attr-defined]
+            async for raw in self._live.receive():  # type: ignore[attr-defined]
                 ev = self._normalize(raw)
                 if isinstance(ev, AudioChunkEvent):
                     pcm_parts.append(ev.pcm)
@@ -315,13 +316,15 @@ class _RealGeminiLiveSession(GeminiLiveSession):
                 elif isinstance(ev, (SessionClosedEvent, BridgeErrorEvent)):
                     break
         except Exception as exc:
-            logger.warning("gemini_live.speak_text_error", error=str(exc))
+            logger.warning(f"gemini_live.speak_text_error: {type(exc).__name__}: {exc}")
+        total_bytes = sum(len(p) for p in pcm_parts)
+        logger.info("gemini_live.speak_text_done", pcm_bytes=total_bytes)
         return b"".join(pcm_parts)
 
     async def events(self) -> AsyncIterator[GeminiLiveEvent]:  # type: ignore[override]
         yield SessionOpenedEvent(session_id=id(self._live).__str__())
         try:
-            async for raw in self._live:  # type: ignore[attr-defined]
+            async for raw in self._live.receive():  # type: ignore[attr-defined]
                 event = self._normalize(raw)
                 if event is not None:
                     yield event
@@ -340,19 +343,27 @@ class _RealGeminiLiveSession(GeminiLiveSession):
             if sc is None:
                 return None
 
-            # Transcription (input audio → text)
-            if getattr(sc, "input_transcription", None):
+            # Low-latency transcription preview while the user is still speaking.
+            if getattr(sc, "interim_input_transcription", None) is not None:
+                t = sc.interim_input_transcription
+                raw_text = getattr(t, "text", "")
+                text = raw_text if isinstance(raw_text, str) else ""
+                if text:
+                    return TranscriptPartialEvent(text=text, confidence=0.7)
+
+            # Final/regular transcription (input audio → text)
+            if getattr(sc, "input_transcription", None) is not None:
                 t = sc.input_transcription
+                raw_text = getattr(t, "text", "")
+                text = raw_text if isinstance(raw_text, str) else ""
                 if getattr(t, "finished", False):
                     return TranscriptFinalEvent(
-                        text=getattr(t, "text", ""),
+                        text=text,
                         confidence=0.9,
                         duration_ms=0,
                     )
-                return TranscriptPartialEvent(
-                    text=getattr(t, "text", ""),
-                    confidence=0.7,
-                )
+                if text:
+                    return TranscriptPartialEvent(text=text, confidence=0.7)
 
             # Audio output (TTS from Gemini — used only for ClaimVoice-approved answers)
             model_turn = getattr(sc, "model_turn", None)

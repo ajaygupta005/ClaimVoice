@@ -105,6 +105,8 @@ export interface VoiceRuntimeStatus {
   model: string
   voice: string
   note: string
+  tts_provider?: string    // "cartesia", "google", "system", "browser"
+  tts_voice_name?: string  // display name, e.g. "Skylar"
 }
 
 /**

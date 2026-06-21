@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-6"
 
     # TTS provider: "browser" falls back to local system TTS when available;
-    # "system" forces local OS TTS; "google" uses Google Cloud TTS first.
-    voice_agent_tts_provider: Literal["browser", "google", "system"] = "browser"
+    # "system" forces local OS TTS; "google" uses Google Cloud TTS first;
+    # "cartesia" uses Cartesia Sonic first.
+    voice_agent_tts_provider: Literal["browser", "cartesia", "google", "system"] = "browser"
     google_tts_voice_name: str = "en-US-Chirp3-HD-Aoede"
     google_tts_language_code: str = "en-US"
     # Google Application Credentials path (optional — falls back to ADC)
@@ -33,6 +34,15 @@ class Settings(BaseSettings):
     # Streaming STT/TTS — real adapters are key-gated with a mock fallback.
     deepgram_api_key: str = ""
     cartesia_api_key: str = ""
+    cartesia_voice_id: str = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4"
+    cartesia_voice_name: str = "Skylar"
+    cartesia_tts_model: str = "sonic-3.5"
+    cartesia_tts_language: str = "en"
+    cartesia_tts_sample_rate: int = 44100
+    cartesia_tts_container: str = "wav"
+    cartesia_tts_encoding: str = "pcm_s16le"
+    cartesia_tts_speed: float = 1.0
+    cartesia_tts_volume: float = 1.0
     stt_mode: Literal["mock", "deepgram"] = "mock"
     tts_mode: Literal["mock", "cartesia", "browser", "system"] = "mock"
 

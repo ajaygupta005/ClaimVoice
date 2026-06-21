@@ -72,10 +72,32 @@ export interface GeminiLiveClientOptions {
   noTranscriptTimeoutMs?: number
 }
 
+// ── Timeout constants (all in ms, single location) ───────────────────────────
+
+/** Default: how long to wait for mic permission before aborting. */
+export const DEFAULT_MIC_PERMISSION_TIMEOUT_MS = 8_000
+/** Default: how long after start() before we expect at least one partial transcript. */
+export const DEFAULT_NO_TRANSCRIPT_TIMEOUT_MS = 20_000
+/** WebSocket connect timeout. */
+export const WS_CONNECT_TIMEOUT_MS = 5_000
+
 // ── Target sample rate sent to Gemini Live ───────────────────────────────────
 
 const TARGET_SAMPLE_RATE = 16_000  // Hz — Gemini Live expects 16 kHz PCM16 LE
 const FRAME_SIZE = 4_096           // samples per ScriptProcessor frame
+
+// ── Debug logging ─────────────────────────────────────────────────────────────
+
+const DEBUG = typeof window !== 'undefined' &&
+  (window.localStorage?.getItem('CLAIMVOICE_DEBUG') === '1' ||
+   new URLSearchParams(window.location.search).get('cv_debug') === '1')
+
+/** Log only when CLAIMVOICE_DEBUG is enabled — never log credentials or raw audio. */
+export function cvDebug(msg: string, meta?: Record<string, unknown>): void {
+  if (!DEBUG) return
+  // eslint-disable-next-line no-console
+  console.debug(`[ClaimVoice:GeminiLive] ${msg}`, meta ?? '')
+}
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
@@ -92,8 +114,8 @@ export class GeminiLiveClient {
 
   constructor(opts: GeminiLiveClientOptions) {
     this.opts = {
-      micPermissionTimeoutMs: 8_000,
-      noTranscriptTimeoutMs: 20_000,
+      micPermissionTimeoutMs: DEFAULT_MIC_PERMISSION_TIMEOUT_MS,
+      noTranscriptTimeoutMs: DEFAULT_NO_TRANSCRIPT_TIMEOUT_MS,
       ...opts,
     }
   }
@@ -102,9 +124,11 @@ export class GeminiLiveClient {
   async start(): Promise<void> {
     if (this.cleanedUp) throw new Error('GeminiLiveClient already cleaned up')
 
+    cvDebug('requesting mic permission')
     // Request mic with a timeout
     const stream = await this._requestMic()
     this.stream = stream
+    cvDebug('mic granted, opening WebSocket', { wsUrl: this.opts.wsUrl })
 
     // Open WebSocket to backend
     const ws = new WebSocket(this.opts.wsUrl)
@@ -112,15 +136,15 @@ export class GeminiLiveClient {
     ws.binaryType = 'arraybuffer'
 
     await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve()
       ws.onerror = () => reject(new Error('WebSocket failed to connect'))
-      // 5 s connect timeout
-      const t = setTimeout(() => reject(new Error('WebSocket connect timeout')), 5_000)
+      const t = setTimeout(() => reject(new Error('WebSocket connect timeout')), WS_CONNECT_TIMEOUT_MS)
       ws.onopen = () => { clearTimeout(t); resolve() }
     })
 
+    cvDebug('WebSocket connected, starting audio capture')
     ws.onmessage = (ev) => this._handleMessage(ev)
     ws.onclose = () => {
+      cvDebug('WebSocket closed')
       if (!this.cleanedUp) this.opts.onClose()
       this._releaseAudio()
     }
@@ -135,6 +159,7 @@ export class GeminiLiveClient {
     // No-transcript watchdog
     this.noTranscriptTimer = setTimeout(() => {
       if (!this.cleanedUp) {
+        cvDebug('no-transcript timeout fired')
         this.opts.onError('no_transcript', 'No speech detected — check microphone')
         this.cleanup()
       }
@@ -177,6 +202,17 @@ export class GeminiLiveClient {
   }
 
   private _startAudioCapture(stream: MediaStream): void {
+    // Watch for the track ending unexpectedly (e.g. user revokes mic in browser settings)
+    stream.getAudioTracks().forEach(track => {
+      track.onended = () => {
+        if (!this.cleanedUp) {
+          cvDebug('mic track ended unexpectedly', { trackLabel: track.label })
+          this.opts.onError('mic_stream_ended', 'Microphone stream ended unexpectedly')
+          this.cleanup()
+        }
+      }
+    })
+
     // AudioContext resamples to TARGET_SAMPLE_RATE for us
     this.audioCtx = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE })
     this.sourceNode = this.audioCtx.createMediaStreamSource(stream)
@@ -189,7 +225,7 @@ export class GeminiLiveClient {
       if (this.cleanedUp || !this.ws || this.ws.readyState !== WebSocket.OPEN) return
       const float32 = ev.inputBuffer.getChannelData(0)
       const pcm16 = this._float32ToPcm16(float32)
-      this.ws.send(pcm16.buffer)
+      this.ws.send(pcm16.buffer as ArrayBuffer)
     }
 
     this.sourceNode.connect(this.processorNode)
@@ -216,17 +252,21 @@ export class GeminiLiveClient {
     switch (data.kind) {
       case 'transcript.partial':
         this._clearNoTranscriptTimer()  // we have speech — cancel the no-speech timeout
+        cvDebug('transcript partial', { len: data.text.length })
         this.opts.onPartial(data.text)
         break
       case 'transcript.final':
         this._clearNoTranscriptTimer()
+        cvDebug('transcript final', { len: data.text.length, durationMs: data.duration_ms })
         this.opts.onFinal(data.text)
         break
       case 'session.closed':
+        cvDebug('session closed', { reason: data.reason })
         if (!this.cleanedUp) this.opts.onClose()
         this.cleanup()
         break
       case 'error':
+        cvDebug('bridge error', { code: data.code })
         this.opts.onError(data.code, data.message)
         this.cleanup()
         break
@@ -267,9 +307,7 @@ export class GeminiLiveClient {
 export function buildGeminiWsUrl(): string {
   const base =
     process.env.NEXT_PUBLIC_VOICE_AGENT_WS_URL ??
-    (typeof window !== 'undefined'
-      ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
-      : 'ws://localhost:8004')
+    'ws://localhost:8004'
   // If the env var is an HTTP URL, convert to WS
   const wsBase = base.replace(/^http/, 'ws')
   return `${wsBase}/api/v1/ws/gemini-live`

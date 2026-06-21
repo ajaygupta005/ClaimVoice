@@ -1,6 +1,6 @@
 /**
  * TTS client — asks the voice-agent backend for playable audio. The backend
- * may use Google Cloud TTS or local system TTS; the frontend never holds API keys.
+ * may use Cartesia, Google Cloud TTS, or local system TTS; the frontend never holds API keys.
  */
 
 export interface TtsSynthesizeRequest {
@@ -12,7 +12,7 @@ export interface TtsSynthesizeRequest {
 /** Unified backend response — always 200, branch on ok. */
 export interface TtsSynthesizeResponse {
   ok: boolean
-  provider: 'google' | 'browser' | 'system'
+  provider: 'cartesia' | 'google' | 'browser' | 'system'
   voiceName: string
   mimeType: string
   audioBase64: string

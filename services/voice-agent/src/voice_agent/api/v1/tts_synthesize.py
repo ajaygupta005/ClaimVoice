@@ -2,6 +2,7 @@
 POST /api/v1/tts/synthesize
 
 Synthesizes answer text to audio.
+- If VOICE_AGENT_TTS_PROVIDER=cartesia, calls Cartesia /tts/bytes (HTTP, no SDK).
 - If VOICE_AGENT_TTS_PROVIDER=google and credentials are available, uses Google Cloud TTS.
 - Otherwise tries local macOS system TTS and returns a playable WAV blob.
 - If no server-side TTS is available, returns ok=False so the browser can decide a fallback.
@@ -10,25 +11,46 @@ Synthesizes answer text to audio.
 from __future__ import annotations
 
 import base64
+import io
 import shutil
 import subprocess
 import tempfile
+import time
+import wave
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from loguru import logger
 
 from voice_agent.core.config import settings
+from voice_agent.lib.logger import logger
 from voice_agent.schemas.tts import TtsSynthesizeRequest, TtsSynthesizeResponse
 
 router = APIRouter()
+
+_CARTESIA_API_URL = "https://api.cartesia.ai/tts/bytes"
+_CARTESIA_API_VERSION = "2026-03-01"
+_CARTESIA_MAX_CHARS = 2_000
+_CARTESIA_TIMEOUT_S = 20.0
 
 
 @router.post("/tts/synthesize", response_model=TtsSynthesizeResponse)
 async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
     provider = settings.voice_agent_tts_provider
+
+    if provider == "cartesia":
+        try:
+            audio_b64, voice_name = _cartesia_synthesize(req.text)
+            return _audio_response(
+                provider="cartesia",
+                voice_name=voice_name,
+                mime_type="audio/wav",
+                audio_b64=audio_b64,
+            )
+        except Exception as exc:
+            logger.warning("cartesia_tts.fallback", reason=str(exc))
 
     if provider == "google":
         try:
@@ -40,7 +62,7 @@ async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
                 audio_b64=audio_b64,
             )
         except Exception as exc:
-            logger.warning(f"Google TTS failed; trying system TTS fallback: {exc!r}")
+            logger.warning("google_tts.fallback", reason=str(exc))
 
     try:
         audio_b64, voice_name, mime_type = _system_synthesize(req.text)
@@ -51,13 +73,13 @@ async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
             audio_b64=audio_b64,
         )
     except Exception as exc:
-        logger.warning(f"System TTS unavailable: {exc!r}")
+        logger.warning("system_tts.unavailable", reason=str(exc))
         return _unavailable_response(reason=f"system_error: {type(exc).__name__}")
 
 
 def _audio_response(
     *,
-    provider: Literal["google", "system"],
+    provider: Literal["cartesia", "google", "system"],
     voice_name: str,
     mime_type: str,
     audio_b64: str,
@@ -83,6 +105,93 @@ def _unavailable_response(reason: str) -> JSONResponse:
         ).model_dump(),
         status_code=200,
     )
+
+
+def _cartesia_synthesize(text: str) -> tuple[str, str]:
+    """Call Cartesia /tts/bytes directly (HTTP, no SDK) and return (base64_wav, voice_name)."""
+    if not settings.cartesia_api_key:
+        raise RuntimeError("cartesia_api_key_missing")
+
+    if len(text) > _CARTESIA_MAX_CHARS:
+        text = text[:_CARTESIA_MAX_CHARS]
+
+    payload = {
+        "model_id": settings.cartesia_tts_model,
+        "transcript": text,
+        "voice": {
+            "mode": "id",
+            "id": settings.cartesia_voice_id,
+        },
+        "output_format": {
+            "container": settings.cartesia_tts_container,
+            "encoding": settings.cartesia_tts_encoding,
+            "sample_rate": settings.cartesia_tts_sample_rate,
+        },
+        "language": settings.cartesia_tts_language,
+        "generation_config": {
+            "speed": settings.cartesia_tts_speed,
+            "volume": settings.cartesia_tts_volume,
+        },
+    }
+
+    voice_id_suffix = settings.cartesia_voice_id[-8:] if settings.cartesia_voice_id else "unknown"
+    t0 = time.monotonic()
+    logger.info(
+        "cartesia_tts.request",
+        model=settings.cartesia_tts_model,
+        voice_name=settings.cartesia_voice_name,
+        voice_id_suffix=voice_id_suffix,
+        text_len=len(text),
+    )
+
+    try:
+        resp = httpx.post(
+            _CARTESIA_API_URL,
+            headers={
+                "Cartesia-Version": _CARTESIA_API_VERSION,
+                "X-API-Key": settings.cartesia_api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=_CARTESIA_TIMEOUT_S,
+        )
+    except httpx.TimeoutException as exc:
+        logger.warning("cartesia_tts.timeout", error=str(exc))
+        raise RuntimeError("cartesia_timeout") from exc
+    except httpx.RequestError as exc:
+        logger.warning("cartesia_tts.request_error", error=str(exc))
+        raise RuntimeError("cartesia_request_error") from exc
+
+    if resp.status_code != 200:
+        logger.warning("cartesia_tts.http_error", status=resp.status_code)
+        raise RuntimeError(f"cartesia_http_{resp.status_code}")
+
+    audio_bytes = resp.content
+    if not audio_bytes:
+        raise RuntimeError("cartesia_empty_audio")
+
+    latency_ms = int((time.monotonic() - t0) * 1000)
+    logger.info(
+        "cartesia_tts.done",
+        latency_ms=latency_ms,
+        audio_bytes=len(audio_bytes),
+        voice_name=settings.cartesia_voice_name,
+    )
+
+    # Cartesia returns a complete WAV when container=wav — base64-encode directly.
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    return audio_b64, settings.cartesia_voice_name
+
+
+def _pcm16_to_wav(pcm: bytes, *, sample_rate: int) -> bytes:
+    """Wrap mono PCM16 little-endian bytes in a WAV container."""
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    return out.getvalue()
 
 
 def _google_synthesize(text: str) -> tuple[str, str]:

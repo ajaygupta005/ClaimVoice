@@ -7,7 +7,7 @@ import {
 import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
 import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus } from '@/lib/voice-agent-client'
-import { GeminiLiveClient, buildGeminiWsUrl } from '@/lib/gemini-live-client'
+import { GeminiLiveClient, buildGeminiWsUrl, cvDebug } from '@/lib/gemini-live-client'
 import { VoiceTurnController } from '@/lib/voice-turn-controller'
 import { synthesizeSpeech, synthesizeGeminiSpeech } from '@/lib/tts-client'
 
@@ -39,6 +39,7 @@ function StatusPill({ status }: { status: VoiceStatus }) {
     listening:        { label: 'Listening',   cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-500 animate-pulse' },
     finalizing_stt:   { label: 'Finalizing…', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',     dot: 'bg-blue-400' },
     thinking:         { label: 'Thinking',    cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', dot: 'bg-amber-500 animate-pulse' },
+    preparing_tts:    { label: 'Preparing voice', cls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300', dot: 'bg-violet-500 animate-pulse' },
     speaking:         { label: 'Speaking',    cls: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300', dot: 'bg-green-500 animate-pulse' },
     error_recoverable:{ label: 'Error',       cls: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',         dot: 'bg-red-500' },
   }
@@ -46,7 +47,7 @@ function StatusPill({ status }: { status: VoiceStatus }) {
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {status === 'thinking' && <Loader2 size={10} className="animate-spin -ml-0.5" />}
+      {(status === 'thinking' || status === 'preparing_tts') && <Loader2 size={10} className="animate-spin -ml-0.5" />}
       {label}
     </span>
   )
@@ -129,6 +130,13 @@ function getPipelineSteps(
     { title: 'Guard',      detail: 'Waiting',         state: 'pending'   },
     { title: 'Respond',    detail: 'Waiting',         state: 'pending'   },
   ]
+  if (status === 'preparing_tts') return [
+    { title: 'Identify',   detail: completed?.identify ?? 'Member verified',       state: 'completed' },
+    { title: 'Understand', detail: completed?.understand ?? 'Intent extracted',     state: 'completed' },
+    { title: 'Check',      detail: completed?.check ?? 'Eligibility queried',       state: 'completed' },
+    { title: 'Guard',      detail: completed?.guard ?? 'Claims grounded',           state: 'completed' },
+    { title: 'Respond',    detail: 'Preparing Skylar…',                             state: 'running'   },
+  ]
   const d = completed ?? {
     identify:   'Member verified',
     understand: 'Intent extracted',
@@ -141,7 +149,7 @@ function getPipelineSteps(
     { title: 'Understand', detail: d.understand, state: 'completed' },
     { title: 'Check',      detail: d.check,      state: 'completed' },
     { title: 'Guard',      detail: d.guard,      state: 'completed' },
-    { title: 'Respond',    detail: 'Streaming…', state: 'running'   },
+    { title: 'Respond',    detail: 'Speaking…',  state: 'running'   },
   ]
   return [
     { title: 'Identify',   detail: d.identify,   state: 'completed' },
@@ -306,10 +314,18 @@ const VOICE_QUESTIONS = [
 const DEFAULT_BACKENDS: BackendStatus[] = [
   { label: 'Voice Agent API', detail: '',          status: 'demo' },
   { label: 'STT: Browser',    detail: '',          status: 'demo' },
-  { label: 'Voice',           detail: 'inactive',  status: 'demo' },
+  { label: 'TTS: Cartesia Skylar', detail: 'inactive', status: 'demo' },
   { label: 'Guard',           detail: '',          status: 'demo' },
   { label: 'Claude answer',   detail: 'mock',      status: 'demo' },
 ]
+
+// Gemini Live is useful for streaming STT, but using it as "read this exact
+// answer aloud" is not deterministic: it can paraphrase because it is a
+// conversational model, not a dedicated TTS endpoint. Keep it opt-in only.
+const ENABLE_GEMINI_TTS = process.env.NEXT_PUBLIC_ENABLE_GEMINI_TTS === '1'
+// Gemini STT remains experimental. The default demo path uses browser STT so
+// stop/final-transcript races in Gemini Live cannot strand the user.
+const ENABLE_GEMINI_STT = process.env.NEXT_PUBLIC_ENABLE_GEMINI_STT === '1'
 
 function isTtsBackendLabel(label: string): boolean {
   return label === 'Voice' || label === 'TTS' || label.startsWith('Voice:') || label.startsWith('TTS:')
@@ -430,20 +446,32 @@ export default function VoiceAssistantUI() {
   }, [])
 
   // ── Preview voice ────────────────────────────────────────────────────────────
-  function handlePreviewVoice() {
+  async function handlePreviewVoice() {
     if (isPreviewing) return
-    if (typeof window === 'undefined' || !window.speechSynthesis) return
-    // Resolve at call-time — state may lag voiceschanged
-    const resolved = resolveBrowserVoice()
     setIsPreviewing(true)
-    window.speechSynthesis.cancel()
-    const utter  = new SpeechSynthesisUtterance(VOICE_PREVIEW_PHRASE)
-    if (resolved.voice) utter.voice = resolved.voice
-    utter.rate   = 0.9
-    utter.pitch  = resolved.pitch
-    utter.onend  = () => setIsPreviewing(false)
-    utter.onerror = () => setIsPreviewing(false)
-    window.speechSynthesis.speak(utter)
+    try {
+      if (isCartesiaTts) {
+        const ttsData = await synthesizeSpeech({ text: VOICE_PREVIEW_PHRASE })
+        if (ttsData?.audioBase64) {
+          const ctrl = controllerRef.current ?? newController()
+          await ctrl.speakAudio(ttsData.audioBase64, ttsData.mimeType, () => setIsPreviewing(false), ttsData.provider)
+          return
+        }
+      }
+      // Browser synthesis fallback (or Cartesia unavailable)
+      if (typeof window === 'undefined' || !window.speechSynthesis) { setIsPreviewing(false); return }
+      const resolved = resolveBrowserVoice()
+      window.speechSynthesis.cancel()
+      const utter = new SpeechSynthesisUtterance(VOICE_PREVIEW_PHRASE)
+      if (resolved.voice) utter.voice = resolved.voice
+      utter.rate = 0.9
+      utter.pitch = resolved.pitch
+      utter.onend = () => setIsPreviewing(false)
+      utter.onerror = () => setIsPreviewing(false)
+      window.speechSynthesis.speak(utter)
+    } catch {
+      setIsPreviewing(false)
+    }
   }
 
   const controllerRef  = useRef<VoiceTurnController | null>(null)
@@ -477,23 +505,30 @@ export default function VoiceAssistantUI() {
 
     setStatus('listening')
     setInterimText('')
+    cvDebug('starting Gemini Live mic session')
 
     const client = new GeminiLiveClient({
       wsUrl: buildGeminiWsUrl(),
-      onPartial: (text) => setInterimText(text),
+      onPartial: (text) => {
+        cvDebug('stt partial', { len: text.length })
+        setInterimText(text)
+      },
       onFinal: (text) => {
+        cvDebug('stt final', { len: text.length })
         setInterimText('')
         setStatus('finalizing_stt')
         // Hand final transcript to existing pipeline — same path as browser STT
         void runPipeline(text, 'voice')
       },
       onError: (code, message) => {
-        console.warn('[GeminiLive] error:', code, message)
+        cvDebug('gemini error', { code })
+        console.warn('[ClaimVoice:GeminiLive] error', code, message)
         setInterimText('')
         setStatus('error_recoverable')
         geminiClientRef.current = null
       },
       onClose: () => {
+        cvDebug('gemini session closed normally')
         // Session closed normally without a final — return to ready
         if (geminiClientRef.current) {
           geminiClientRef.current = null
@@ -506,9 +541,20 @@ export default function VoiceAssistantUI() {
     try {
       await client.start()
     } catch (err) {
-      console.warn('[GeminiLive] start failed:', err)
       geminiClientRef.current = null
       setInterimText('')
+
+      const isPermissionDenied =
+        err instanceof Error &&
+        (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+
+      if (isPermissionDenied) {
+        console.warn('[ClaimVoice:GeminiLive] mic permission denied')
+        setStatus('error_recoverable')
+        return
+      }
+
+      console.warn('[ClaimVoice:GeminiLive] start failed, falling back to browser STT:', err)
       // Fall back to browser STT if available
       const ctrl = newController()
       const srOk = ctrl.startSTT()
@@ -543,6 +589,9 @@ export default function VoiceAssistantUI() {
     // Snapshot turnId — any state update from an older turn is ignored
     const myTurnId = ctrl.turnId
     const signal   = ctrl.startBackend()
+    const pipelineStart = Date.now()
+
+    cvDebug('pipeline start', { source, questionLen: question.length })
 
     setInterimText('')
     setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: question, timestampMs: Date.now() }])
@@ -567,7 +616,7 @@ export default function VoiceAssistantUI() {
         setPipeDetails(backendResult.pipeDetails)
         // Relabel backends: rename Claude → Claude answer, STT → runtime-aware label
         const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
-        const sttLabel = isGeminiRuntime ? 'STT: Gemini Live' : 'STT: Browser'
+        const sttLabel = useGeminiStt ? 'STT: Gemini Live' : 'STT: Browser'
         setBackends(backendResult.backends.map(b => {
           if (b.label === 'Claude') return { ...b, label: 'Claude answer', status: claudeStatus as LedStatus }
           if (b.label === 'STT')   return { ...b, label: sttLabel }
@@ -603,17 +652,21 @@ export default function VoiceAssistantUI() {
     if (isStale()) return
 
     ctrl.backendSuccess()
+    cvDebug('agent response received', { latencyMs: Date.now() - pipelineStart, answerLen: answerText.length })
 
     // ── TTS: Gemini Live → Google Cloud → browser voice ──────────────────────
     const onTtsDone = () => {
+      cvDebug('speech playback ended')
       if (!isStale()) ctrl.cleanup('tts_done')
     }
 
-    // 1. Gemini Live TTS (only when runtime is gemini-live-configured)
-    if (isGeminiRuntime) {
+    // 1. Gemini Live TTS (experimental, opt-in only)
+    if (isGeminiRuntime && ENABLE_GEMINI_TTS) {
+      cvDebug('attempting Gemini Live TTS')
       const geminiAudio = await synthesizeGeminiSpeech(answerText)
       if (isStale()) return
       if (geminiAudio?.audioBase64) {
+        cvDebug('speech playback start', { provider: 'gemini-live' })
         setBackends(prev => prev.map(b =>
           isTtsBackendLabel(b.label)
             ? { ...b, label: 'Voice: Gemini Live', status: 'connected' as LedStatus, detail: 'Answer: Claude' }
@@ -623,18 +676,23 @@ export default function VoiceAssistantUI() {
         return
       }
       // Gemini TTS failed — fall through to browser fallback below
+      cvDebug('Gemini Live TTS failed, fallback reason: gemini_speak_empty')
       console.warn('[ClaimVoice:TTS] Gemini Live speak failed, falling back to browser voice')
+    } else if (isGeminiRuntime) {
+      cvDebug('skipping Gemini Live TTS; exact-answer speech requires a dedicated TTS provider')
     }
 
-    // 2. Google Cloud TTS (non-Gemini runtime or Gemini failed)
+    // 2. Dedicated TTS provider (Cartesia / Google / system)
     const ttsData = await synthesizeSpeech({ text: answerText })
     if (isStale()) return
 
     if (ttsData?.audioBase64) {
       const ttsLabel =
-        ttsData.provider === 'google' ? 'TTS: Google'
+        ttsData.provider === 'cartesia' ? 'TTS: Cartesia Skylar'
+          : ttsData.provider === 'google' ? 'TTS: Google'
           : ttsData.provider === 'system' ? 'TTS: macOS'
             : 'TTS: Audio'
+      cvDebug('speech playback start', { provider: ttsData.provider })
       setBackends(prev => prev.map(b =>
         isTtsBackendLabel(b.label)
           ? { ...b, label: ttsLabel, status: 'connected' as LedStatus, detail: ttsData.voiceName }
@@ -644,9 +702,10 @@ export default function VoiceAssistantUI() {
     } else {
       // 3. Browser voice fallback
       const resolved = resolveBrowserVoice()
+      cvDebug('speech playback start', { provider: 'browser', voice: resolved.label })
       setBackends(prev => prev.map(b =>
         isTtsBackendLabel(b.label)
-          ? { ...b, label: 'TTS: Browser', status: 'connected' as LedStatus, detail: resolved.label }
+          ? { ...b, label: 'TTS: Browser (fallback)', status: 'connected' as LedStatus, detail: resolved.label }
           : b
       ))
       ctrl.speakBrowser(answerText, resolved.voice, onTtsDone, { rate: 0.9, pitch: resolved.pitch })
@@ -654,25 +713,34 @@ export default function VoiceAssistantUI() {
   }
 
   const isGeminiRuntime = runtimeStatus?.runtime === 'gemini-live-configured'
+  const useGeminiStt = isGeminiRuntime && ENABLE_GEMINI_STT
+  const isCartesiaTts = runtimeStatus?.tts_provider === 'cartesia'
+  const displayVoiceLabel = isCartesiaTts
+    ? `Voice: ${runtimeStatus?.tts_voice_name ?? 'Cartesia Skylar'}`
+    : voiceLabel
 
   const handleMicClick = useCallback(() => {
     if (status === 'thinking' || status === 'finalizing_stt') return
     primeSpeechSynthesis('mic_click')
 
-    if (status === 'speaking') {
+    if (status === 'speaking' || status === 'preparing_tts') {
       // Interrupt TTS and start a new turn
-      if (isGeminiRuntime) {
+      if (useGeminiStt) {
         void startGeminiMic()
       } else {
         const ctrl = newController()
-        ctrl.startSTT()
+        const srOk = ctrl.startSTT()
+        if (!srOk) {
+          setStatus('error_recoverable')
+          ctrl.cleanup('browser_stt_unavailable')
+        }
       }
       return
     }
 
     if (status === 'listening') {
       // Stop whichever input path is active
-      if (isGeminiRuntime) {
+      if (useGeminiStt) {
         stopGeminiMic()
         setStatus('ready')
       } else {
@@ -682,13 +750,17 @@ export default function VoiceAssistantUI() {
     }
 
     // ready or error_recoverable → start new turn
-    if (isGeminiRuntime) {
+    if (useGeminiStt) {
       void startGeminiMic()
     } else {
       const ctrl = newController()
-      ctrl.startSTT()
+      const srOk = ctrl.startSTT()
+      if (!srOk) {
+        setStatus('error_recoverable')
+        ctrl.cleanup('browser_stt_unavailable')
+      }
     }
-  }, [primeSpeechSynthesis, status, isGeminiRuntime]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [primeSpeechSynthesis, status, useGeminiStt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleReset() {
     setInterimText('')
@@ -702,7 +774,7 @@ export default function VoiceAssistantUI() {
 
   function handleSend() {
     const text = input.trim()
-    if (!text || status === 'thinking' || status === 'finalizing_stt') return
+    if (!text || status === 'thinking' || status === 'finalizing_stt' || status === 'preparing_tts') return
     primeSpeechSynthesis('typed_send')
     setInput('')
     // newController() calls cleanup() on any current controller (stops TTS/STT)
@@ -710,7 +782,7 @@ export default function VoiceAssistantUI() {
     void runPipeline(text, 'typed')
   }
 
-  const isInputBusy = status === 'thinking' || status === 'finalizing_stt'
+  const isInputBusy = status === 'thinking' || status === 'finalizing_stt' || status === 'preparing_tts'
   const latestAssistant = [...turns].reverse().find(t => t.role === 'assistant')
   const pipelineSteps   = getPipelineSteps(status, pipeDetails)
 
@@ -719,6 +791,7 @@ export default function VoiceAssistantUI() {
     status === 'listening'         ? 'Listening — tap to stop'          :
     status === 'finalizing_stt'    ? 'Finalizing speech…'               :
     status === 'thinking'          ? 'Checking plan…'                   :
+    status === 'preparing_tts'     ? 'Preparing Skylar voice…'          :
     status === 'speaking'          ? 'Speaking answer — tap to stop'    :
     status === 'error_recoverable' ? 'Error — tap to retry'             :
                                      'Tap mic to speak'
@@ -820,6 +893,8 @@ export default function VoiceAssistantUI() {
                     ? 'bg-red-500 hover:bg-red-600 scale-105 shadow-red-200 dark:shadow-red-900/50'
                     : status === 'thinking'
                     ? 'bg-slate-200 dark:bg-slate-700 cursor-not-allowed opacity-60'
+                    : status === 'preparing_tts'
+                    ? 'bg-violet-500 hover:bg-violet-600 active:scale-95 shadow-violet-200 dark:shadow-violet-900/50'
                     : status === 'speaking'
                     ? 'bg-amber-500 hover:bg-amber-600 active:scale-95 shadow-amber-200 dark:shadow-amber-900/50'
                     : status === 'error_recoverable'
@@ -832,7 +907,7 @@ export default function VoiceAssistantUI() {
                   : <Mic    size={22} className="text-white" />}
               </button>
               <div className="flex flex-col gap-1.5 min-w-0 flex-1">
-                <Waveform active={status === 'listening'} />
+                <Waveform active={status === 'listening' || status === 'speaking'} />
                 <span className="text-[11px] text-slate-400 dark:text-slate-500 truncate">
                   {micStatusText}
                 </span>
@@ -842,13 +917,13 @@ export default function VoiceAssistantUI() {
             {/* Voice selector + preview */}
             <div className="px-4 py-2 shrink-0 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
               <span className={`text-[10px] truncate flex-1 ${
-                selectedVoice ? 'text-slate-500 dark:text-slate-400' : 'text-amber-500 dark:text-amber-400'
+                isCartesiaTts || selectedVoice ? 'text-slate-500 dark:text-slate-400' : 'text-amber-500 dark:text-amber-400'
               }`}>
-                {voiceLabel}
+                {displayVoiceLabel}
               </span>
               <button
-                onClick={handlePreviewVoice}
-                disabled={isPreviewing || status === 'speaking'}
+                onClick={() => { void handlePreviewVoice() }}
+                disabled={isPreviewing || status === 'preparing_tts' || status === 'speaking'}
                 title="Preview voice"
                 aria-label="Preview voice"
                 className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-blue-600 hover:border-blue-300 dark:hover:text-blue-400 dark:hover:border-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -960,7 +1035,7 @@ export default function VoiceAssistantUI() {
             <LedRow key={b.label} label={b.label} ledStatus={b.status} />
           ))}
         </div>
-        {runtimeStatus && (
+        {runtimeStatus && ENABLE_GEMINI_TTS && (
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 mt-1">
             <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Voice runtime</p>
             <RuntimeRow status={runtimeStatus} />
