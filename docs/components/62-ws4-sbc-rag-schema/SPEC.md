@@ -1,4 +1,4 @@
-# SPEC — 55 · WS-4 SBC RAG Schema
+# SPEC — 62 · WS-4 SBC RAG Schema
 
 > **Commit**: `feat(ws4/rag): SBC RAG request/response Pydantic schemas`
 > **File**: `services/eligibility/src/eligibility/schemas/sbc_rag.py`

@@ -1,4 +1,4 @@
-# SPEC — 56 · WS-4 SBC RAG Repository
+# SPEC — 63 · WS-4 SBC RAG Repository
 
 > **Commit**: `feat(ws4/rag): pgvector cosine similarity search repository`
 > **File**: `services/eligibility/src/eligibility/repositories/sbc_rag_repo.py`

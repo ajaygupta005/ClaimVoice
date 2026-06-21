@@ -1,4 +1,4 @@
-# SPEC — 57 · WS-4 SBC RAG Service & API
+# SPEC — 64 · WS-4 SBC RAG Service & API
 
 > **Commit**: `feat(ws4/rag): Voyage AI query embedding, retrieve_chunks service, POST /sbc/retrieve endpoint`
 > **Files**:
