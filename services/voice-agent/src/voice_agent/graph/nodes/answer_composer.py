@@ -34,6 +34,7 @@ class ComposerInput:
     tool_args: dict[str, Any]
     tool_result: str
     member_context: str = ""
+    tool_facts: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -169,7 +170,8 @@ You are the answer narrator for ClaimVoice, an AI phone agent for US health insu
 Your job is ONLY to turn structured tool facts into a concise, conversational phone answer.
 
 Rules:
-- Use ONLY the facts provided in the tool_result field. Do not invent coverage, cost, drug, or provider facts.
+- Use ONLY the facts provided in the tool_result and tool_facts fields (tool_facts may include
+  exact figures and Summary-of-Benefits passages). Do not invent coverage, cost, drug, or provider facts.
 - If the tool_result does not contain enough information to answer, set needs_escalation to true.
 - Keep the answer brief and phone-friendly (1–3 sentences).
 - Do not mention internal systems, tool names, or implementation details.
@@ -219,7 +221,8 @@ class ClaudeComposer(AnswerComposer):
             "intent": inp.intent,
             "tool_name": inp.tool_name,
             "tool_result": inp.tool_result,
-            "member_context": inp.member_context or "Silver PPO plan member",
+            "tool_facts": inp.tool_facts,
+            "member_context": inp.member_context or "the member's plan",
         }, ensure_ascii=False)
 
         try:
