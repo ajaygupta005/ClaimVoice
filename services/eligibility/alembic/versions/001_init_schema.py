@@ -32,6 +32,7 @@ def upgrade() -> None:
     if has_postgis:
         op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
 
+
     # Create members table
     op.create_table(
         'members',

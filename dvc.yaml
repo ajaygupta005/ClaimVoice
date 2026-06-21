@@ -103,6 +103,22 @@ stages:
           cache: false
           persist: true
 
+  # ── WS-4: SBC chunk & embed (downstream of download_sbcs + ingest_plan_puf) ──
+  sbc_embed:
+    desc: "Chunk SBC PDFs, embed with voyage-4-large, store in sbc_chunks (pgvector)"
+    cmd: python data/ingest/sbc_embed_ingest.py
+    deps:
+      - data/ingest/sbc_embed_ingest.py
+      - data/ingest/configs/sbc_embed_ingest.yaml
+      - data/raw/sbcs             # ordering signal: run after download_sbcs
+      - data/raw/exchange_puf_2026  # ordering signal: run after ingest_plan_puf
+    params:
+      - data/ingest/configs/sbc_embed_ingest.yaml:
+          - embed.chunk_size
+          - embed.overlap
+          - embed.voyage_model
+    # no outs: output is the sbc_chunks DB table, not a file
+
   # ── ML training (downstream of synthetic_cards) ─────────────────────────
   train_card_ocr:
     desc: "Fine-tune LayoutLMv3 for card OCR (just train.card_ocr wraps this)"
