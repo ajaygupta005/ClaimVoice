@@ -31,6 +31,9 @@ class ToolTrace(BaseModel):
     args: dict[str, Any]
     result: str
     ok: bool
+    data_source: str = "demo"   # "real" | "demo" | "error"
+    error_code: str = ""
+    member_source: str = ""     # "provided" | "demo" | "missing"
 
 
 class AnswerFinalEvent(BaseModel):

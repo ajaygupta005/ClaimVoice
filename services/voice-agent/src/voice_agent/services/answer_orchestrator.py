@@ -38,6 +38,9 @@ def orchestrate(
             args=t.get("args", {}),
             result=t.get("result", ""),
             ok=bool(t.get("ok", False)),
+            data_source=t.get("data_source", "demo"),
+            error_code=t.get("error_code", ""),
+            member_source=t.get("member_source", ""),
         )
         for t in raw_traces
     ]

@@ -33,12 +33,20 @@ router = APIRouter()
 _CARTESIA_API_URL = "https://api.cartesia.ai/tts/bytes"
 _CARTESIA_API_VERSION = "2026-03-01"
 _CARTESIA_MAX_CHARS = 2_000
-_CARTESIA_TIMEOUT_S = 20.0
+_CARTESIA_TIMEOUT_S = 45.0
+
+
+class _CartesiaError(RuntimeError):
+    """Cartesia-specific failure with a machine-readable error code."""
+    def __init__(self, error_code: str, detail: str = "") -> None:
+        super().__init__(detail or error_code)
+        self.error_code = error_code
 
 
 @router.post("/tts/synthesize", response_model=TtsSynthesizeResponse)
 async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
     provider = settings.voice_agent_tts_provider
+    primary_error_code = ""
 
     if provider == "cartesia":
         try:
@@ -49,7 +57,11 @@ async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
                 mime_type="audio/wav",
                 audio_b64=audio_b64,
             )
+        except _CartesiaError as exc:
+            primary_error_code = exc.error_code
+            logger.warning("cartesia_tts.fallback", reason=exc.error_code)
         except Exception as exc:
+            primary_error_code = "cartesia_error"
             logger.warning("cartesia_tts.fallback", reason=str(exc))
 
     if provider == "google":
@@ -74,7 +86,8 @@ async def tts_synthesize(req: TtsSynthesizeRequest) -> JSONResponse:
         )
     except Exception as exc:
         logger.warning("system_tts.unavailable", reason=str(exc))
-        return _unavailable_response(reason=f"system_error: {type(exc).__name__}")
+        error_code = primary_error_code or f"system_error_{type(exc).__name__}"
+        return _unavailable_response(reason=str(exc), error_code=error_code)
 
 
 def _audio_response(
@@ -95,12 +108,13 @@ def _audio_response(
     )
 
 
-def _unavailable_response(reason: str) -> JSONResponse:
+def _unavailable_response(reason: str, error_code: str = "") -> JSONResponse:
     return JSONResponse(
         TtsSynthesizeResponse(
             ok=False,
             provider="system",
             reason=reason,
+            errorCode=error_code or reason,
             fallback="browser",
         ).model_dump(),
         status_code=200,
@@ -110,7 +124,7 @@ def _unavailable_response(reason: str) -> JSONResponse:
 def _cartesia_synthesize(text: str) -> tuple[str, str]:
     """Call Cartesia /tts/bytes directly (HTTP, no SDK) and return (base64_wav, voice_name)."""
     if not settings.cartesia_api_key:
-        raise RuntimeError("cartesia_api_key_missing")
+        raise _CartesiaError("cartesia_key_missing")
 
     if len(text) > _CARTESIA_MAX_CHARS:
         text = text[:_CARTESIA_MAX_CHARS]
@@ -157,18 +171,18 @@ def _cartesia_synthesize(text: str) -> tuple[str, str]:
         )
     except httpx.TimeoutException as exc:
         logger.warning("cartesia_tts.timeout", error=str(exc))
-        raise RuntimeError("cartesia_timeout") from exc
+        raise _CartesiaError("cartesia_timeout") from exc
     except httpx.RequestError as exc:
         logger.warning("cartesia_tts.request_error", error=str(exc))
-        raise RuntimeError("cartesia_request_error") from exc
+        raise _CartesiaError("cartesia_request_error", str(exc)) from exc
 
     if resp.status_code != 200:
         logger.warning("cartesia_tts.http_error", status=resp.status_code)
-        raise RuntimeError(f"cartesia_http_{resp.status_code}")
+        raise _CartesiaError(f"cartesia_http_{resp.status_code}")
 
     audio_bytes = resp.content
     if not audio_bytes:
-        raise RuntimeError("cartesia_empty_audio")
+        raise _CartesiaError("cartesia_empty_audio")
 
     latency_ms = int((time.monotonic() - t0) * 1000)
     logger.info(

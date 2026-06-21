@@ -15,6 +15,8 @@ class AgentState(TypedDict, total=False):
     # ── member ────────────────────────────────────────────────────────────────
     member_id: str
     member_verified: bool
+    # "provided" | "demo" | "missing" — set by call_tool based on mode rules
+    member_source: str
 
     # ── conversation memory ─────────────────────────────────────────────────────
     history: list[dict[str, Any]]  # prior [{question, answer}] turns this session

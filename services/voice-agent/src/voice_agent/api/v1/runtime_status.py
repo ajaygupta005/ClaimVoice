@@ -50,7 +50,9 @@ def _resolve_runtime() -> VoiceRuntimeStatus:
     requested = settings.claimvoice_voice_runtime
     tts = _tts_fields()
 
-    if requested == "gemini-live":
+    # Gemini Live is only active when explicitly enabled via GEMINI_ENABLED=true.
+    # Without the flag, the normal demo path is Claude + Cartesia only.
+    if requested == "gemini-live" and settings.gemini_enabled:
         if settings.gemini_api_key:
             if not _gemini_sdk_available():
                 return VoiceRuntimeStatus(
