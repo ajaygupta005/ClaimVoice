@@ -16,6 +16,7 @@ dependencies = [
   "loguru>=0.7",
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",
+  "voyageai>=0.3.0",
 ]
 
 [project.optional-dependencies]

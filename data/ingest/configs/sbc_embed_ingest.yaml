@@ -1,0 +1,10 @@
+embed:
+  sbc_dir: "data/raw/sbcs"
+  chunk_size: 400          # words per chunk (~512 tokens for English prose)
+  overlap: 50              # word overlap between consecutive chunks
+  min_chunk_words: 20      # skip sections shorter than this
+  voyage_model: "voyage-4-large"
+  voyage_batch_size: 128   # texts per Voyage API call (SDK limit)
+  voyage_sleep_s: 1.0      # sleep between batches (free-tier rate limit guard)
+  database_url: ${oc.env:DATABASE_URL,postgresql://claimvoice:changeme@localhost:5432/claimvoice}
+  voyage_api_key: ${oc.env:VOYAGE_API_KEY,""}
