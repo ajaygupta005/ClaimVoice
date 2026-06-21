@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # "claude" = LLM entailment over (answer, facts).
     fact_check_mode: Literal["mock", "claude"] = "mock"
 
+    voyage_api_key: str = ""  # required for sbc_embed_ingest and sbc_rag
+
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
