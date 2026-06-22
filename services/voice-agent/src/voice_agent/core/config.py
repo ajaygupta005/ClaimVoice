@@ -9,9 +9,11 @@ class Settings(BaseSettings):
     # Backend service URLs for real tool calls (tool_mode == "http")
     eligibility_base_url: str = "http://localhost:8002"
     providers_base_url: str = "http://localhost:8003"
-    # Tools: "mock" = deterministic inline logic; "http" = call WS-4/WS-5 services
-    # (falls back to the mock string on any HTTP error so dev/tests stay green).
+    # Tools: "mock" = deterministic inline logic; "http" = call WS-4/WS-5 services.
+    # In "http" mode a missing member_id returns a safe error instead of silently
+    # using demo data. Set demo_mode=True to allow demo member fallback in "http" mode.
     tool_mode: Literal["mock", "http"] = "mock"
+    demo_mode: bool = True  # allow demo member fallback; set False in production
 
     # Answer composer: "mock" runs deterministic logic; "claude" calls Anthropic.
     # Default is "mock" so local startup works without an API key.
@@ -53,6 +55,14 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""          # server-side only — never exposed to frontend
     gemini_live_model: str = "gemini-3.1-flash-live-preview"
     gemini_live_voice: str = "Zephyr"
+    # Set GEMINI_ENABLED=true to activate Gemini Live routes and runtime status.
+    # Default is False — Gemini does not appear in the normal demo path.
+    gemini_enabled: bool = False
+
+    # Turn watchdog timeouts (seconds). 0 = disabled.
+    # Prevents voice turns from hanging indefinitely in orchestrate or TTS.
+    orchestrate_timeout_s: float = 30.0
+    tts_timeout_s: float = 20.0
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

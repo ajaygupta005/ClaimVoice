@@ -307,6 +307,7 @@ def test_graph_routing_unchanged():
         "identify_member",
         "understand_intent",
         "call_tool",
+        "sbc_rag_fallback",
         "compose_answer",
         "hallucination_guard",
         "prepare_response",

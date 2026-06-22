@@ -15,6 +15,8 @@ class AgentState(TypedDict, total=False):
     # ── member ────────────────────────────────────────────────────────────────
     member_id: str
     member_verified: bool
+    # "provided" | "demo" | "missing" — set by call_tool based on mode rules
+    member_source: str
 
     # ── conversation memory ─────────────────────────────────────────────────────
     history: list[dict[str, Any]]  # prior [{question, answer}] turns this session
@@ -32,6 +34,22 @@ class AgentState(TypedDict, total=False):
     grounded: bool        # False when escalating; True for grounded tool answers
     guard_reason: str     # why the guard passed or flagged
     escalate: bool
+
+    # ── SBC RAG fallback (Component 68) ──────────────────────────────────────
+    plan_id: str                       # resolved from member's plan; passed to RAG
+    rag_attempted: bool
+    rag_available: bool
+    rag_chunks_count: int
+    rag_fallback_reason: str           # non-empty when RAG is unavailable/empty
+    rag_source: str                    # "eligibility-sbc-rag" or ""
+    rag_chunks: list[dict[str, Any]]   # raw chunk dicts for Claude/guard context
+
+    # ── guard metadata (Component 69) ────────────────────────────────────────
+    guard_reason_code: str           # supported_by_structured_tool | supported_by_sbc_rag |
+                                     #   unsupported_claim | no_facts_available | rag_unavailable
+    guard_supported_by: list[str]    # ["structured_tool"] | ["sbc_rag"] | both | []
+    guard_unsupported_claims: list[str]
+    guard_rag_facts_used: int        # count of RAG chunks the guard consumed
 
     # ── trace ─────────────────────────────────────────────────────────────────
     tool_trace: list[dict[str, Any]]  # list[ToolTrace-compatible dict]

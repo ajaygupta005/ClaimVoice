@@ -13,7 +13,43 @@ const SILENCE_AFTER_MS    = 2_000
 const BACKEND_TIMEOUT_MS  = 20_000
 const MAX_INTERIM_CHARS   = 500
 const TTS_EXTRA_BUFFER_MS = 5_000
-const WHOLE_TURN_MAX_MS   = 30_000
+const TTS_MAX_PLAYBACK_MS = 120_000
+const WHOLE_TURN_MAX_MS   = 150_000
+
+function clampMs(ms: number, minMs: number, maxMs: number): number {
+  return Math.min(Math.max(ms, minMs), maxMs)
+}
+
+function chunkId(bytes: Uint8Array, offset: number): string {
+  return String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
+}
+
+function estimateWavDurationMs(bytes: Uint8Array): number | null {
+  if (bytes.length < 44) return null
+  if (chunkId(bytes, 0) !== 'RIFF' || chunkId(bytes, 8) !== 'WAVE') return null
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let byteRate = 0
+  let dataBytes = 0
+  let offset = 12
+
+  while (offset + 8 <= bytes.length) {
+    const id = chunkId(bytes, offset)
+    const size = view.getUint32(offset + 4, true)
+    const body = offset + 8
+
+    if (id === 'fmt ' && body + 16 <= bytes.length) {
+      byteRate = view.getUint32(body + 8, true)
+    } else if (id === 'data') {
+      dataBytes = size
+    }
+
+    offset = body + size + (size % 2)
+  }
+
+  if (byteRate <= 0 || dataBytes <= 0) return null
+  return Math.ceil((dataBytes / byteRate) * 1_000)
+}
 
 export type TurnState =
   | 'ready'
@@ -284,15 +320,16 @@ export class VoiceTurnController {
     }
     el.onplaying = () => {
       markPlaybackStarted()
+      const wavDurationMs = estimateWavDurationMs(bytes)
       const durationMs = Number.isFinite(el.duration) && el.duration > 0
         ? Math.ceil(el.duration * 1_000) + TTS_EXTRA_BUFFER_MS
-        : Math.max(bytes.length / 16, 3_000) + TTS_EXTRA_BUFFER_MS
-      armWatchdog('audio_end_timeout', Math.min(Math.max(durationMs, 3_000), 30_000))
+        : (wavDurationMs ?? 30_000) + TTS_EXTRA_BUFFER_MS
+      armWatchdog('audio_end_timeout', clampMs(durationMs, 3_000, TTS_MAX_PLAYBACK_MS))
     }
     el.onloadedmetadata = () => {
       if (!done && Number.isFinite(el.duration) && el.duration > 0) {
         const durationMs = Math.ceil(el.duration * 1_000) + TTS_EXTRA_BUFFER_MS
-        armWatchdog('audio_end_timeout', Math.min(Math.max(durationMs, 3_000), 30_000))
+        armWatchdog('audio_end_timeout', clampMs(durationMs, 3_000, TTS_MAX_PLAYBACK_MS))
       }
     }
     try {

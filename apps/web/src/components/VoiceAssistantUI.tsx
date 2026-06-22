@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import { type VoiceTurn, type VoiceStatus } from '@/lib/mock-data'
 import { runMockPipeline, type BackendStatus, type LedStatus } from '@/lib/mock-pipeline'
-import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus } from '@/lib/voice-agent-client'
+import { sendVoiceAgentQuestion, fetchRuntimeStatus, type VoiceRuntimeStatus, type EvidenceItem, type RagStatusKind } from '@/lib/voice-agent-client'
+import EvidencePanel from '@/components/EvidencePanel'
 import { GeminiLiveClient, buildGeminiWsUrl, cvDebug } from '@/lib/gemini-live-client'
 import { VoiceTurnController } from '@/lib/voice-turn-controller'
 import { synthesizeSpeech, synthesizeGeminiSpeech } from '@/lib/tts-client'
@@ -211,6 +212,41 @@ function RuntimeRow({ status }: { status: VoiceRuntimeStatus }) {
   )
 }
 
+// ── RAG readiness row (Component 71) ─────────────────────────────────────────
+
+function RagStatusRow({ status }: { status: VoiceRuntimeStatus }) {
+  const ragStatus = status.rag_status ?? 'unreachable'
+  const chunksCount = status.rag_chunks_count ?? 0
+
+  const dotCls: Record<RagStatusKind, string> = {
+    ready:          'bg-green-500',
+    key_missing:    'bg-red-500',
+    table_missing:  'bg-red-500',
+    empty:          'bg-amber-400 animate-pulse',
+    no_plan_links:  'bg-amber-400 animate-pulse',
+    db_error:       'bg-red-400',
+    unreachable:    'bg-slate-300 dark:bg-slate-600',
+  }
+  const label: Record<RagStatusKind, string> = {
+    ready:          `RAG ready (${chunksCount})`,
+    key_missing:    'RAG key missing',
+    table_missing:  'RAG table missing',
+    empty:          'RAG empty',
+    no_plan_links:  'RAG no plans',
+    db_error:       'RAG DB error',
+    unreachable:    'RAG unavailable',
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 py-[3px]" data-testid="rag-status-row">
+      <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotCls[ragStatus]}`} />
+      <span className="text-[10px] text-slate-500 dark:text-slate-400 truncate leading-none">
+        {label[ragStatus]}
+      </span>
+    </div>
+  )
+}
+
 // ── Approved browser voices ───────────────────────────────────────────────────
 
 const APPROVED_BROWSER_VOICES = [
@@ -382,6 +418,8 @@ export default function VoiceAssistantUI() {
   const [usedFallback, setUsedFallback] = useState(false)
   const [composerMode, setComposerMode] = useState<string>('mock')
   const [interimText,  setInterimText] = useState('')
+  const [evidence,     setEvidence]    = useState<EvidenceItem[]>([])
+  const [ragSource,    setRagSource]   = useState<string | undefined>(undefined)
 
   // ── Voice runtime selector (Component 50) ───────────────────────────────────
   const [runtimeStatus, setRuntimeStatus] = useState<VoiceRuntimeStatus | null>(null)
@@ -594,6 +632,8 @@ export default function VoiceAssistantUI() {
     cvDebug('pipeline start', { source, questionLen: question.length })
 
     setInterimText('')
+    setEvidence([])      // clear evidence from previous turn
+    setRagSource(undefined)
     setTurns(p => [...p, { id: `m-${Date.now()}`, role: 'member', text: question, timestampMs: Date.now() }])
 
     let answerText = ''
@@ -614,6 +654,8 @@ export default function VoiceAssistantUI() {
         if (backendResult.composer_mode) setComposerMode(backendResult.composer_mode)
         setGuardPassed(backendResult.grounded)
         setPipeDetails(backendResult.pipeDetails)
+        setEvidence(backendResult.evidence ?? [])
+        setRagSource(backendResult.rag?.ragSource || undefined)
         // Relabel backends: rename Claude → Claude answer, STT → runtime-aware label
         const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
         const sttLabel = useGeminiStt ? 'STT: Gemini Live' : 'STT: Browser'
@@ -857,6 +899,11 @@ export default function VoiceAssistantUI() {
           </div>
         </div>
 
+        {/* 2b. Evidence citations (Component 70) */}
+        {evidence.length > 0 && (
+          <EvidencePanel evidence={evidence} ragSource={ragSource} />
+        )}
+
         {/* 3. Pipeline */}
         <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 overflow-x-auto">
           <div className="px-3 py-2 grid grid-cols-5 min-w-[400px]">
@@ -1039,6 +1086,12 @@ export default function VoiceAssistantUI() {
           <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 mt-1">
             <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Voice runtime</p>
             <RuntimeRow status={runtimeStatus} />
+          </div>
+        )}
+        {runtimeStatus && (
+          <div className="bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 mt-1">
+            <p className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Plan RAG</p>
+            <RagStatusRow status={runtimeStatus} />
           </div>
         )}
       </div>

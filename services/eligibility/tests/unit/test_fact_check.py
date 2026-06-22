@@ -5,6 +5,34 @@ from __future__ import annotations
 from eligibility.services.fact_check import fact_check
 
 
+def test_endpoint_merges_rag_facts(monkeypatch):
+    from eligibility.api.v1 import fact_check as fact_check_api
+    from eligibility.schemas.fact_check import FactCheckRequest, FactCheckResponse
+
+    captured: dict[str, list[str]] = {}
+
+    def fake_fact_check(answer, facts, claim_types, mode, api_key, model):
+        captured["facts"] = facts
+        return FactCheckResponse(
+            grounded=True,
+            guardReason="all claims grounded in facts",
+            ungroundedClaims=[],
+            mode="mock",
+        )
+
+    monkeypatch.setattr(fact_check_api, "fact_check", fake_fact_check)
+
+    fact_check_api.fact_check_endpoint(
+        FactCheckRequest(
+            answer="MRI requires prior authorization.",
+            facts=["MRI is covered"],
+            ragFacts=["prior authorization required"],
+        )
+    )
+
+    assert captured["facts"] == ["MRI is covered", "prior authorization required"]
+
+
 def test_grounded_amount():
     r = fact_check("Your urgent care copay is $75.", ["urgent care copay $75"], ["amount"])
     assert r.grounded is True

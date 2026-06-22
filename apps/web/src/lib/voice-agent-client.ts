@@ -27,6 +27,28 @@ export interface AgentBackendStatus {
   status: string
 }
 
+/** Normalised SBC evidence item for UI rendering (Component 70). */
+export interface EvidenceItem {
+  text: string
+  sectionName: string
+  sourceFile: string
+  distance: number
+}
+
+/** RAG + guard metadata from WS-7 (Component 68/69/70). */
+export interface RagMeta {
+  ragAttempted: boolean
+  ragAvailable: boolean
+  ragChunksCount: number
+  ragFallbackReason: string
+  ragSource: string
+  guardPassed: boolean
+  guardReasonCode: string
+  supportedBy: string[]
+  unsupportedClaims: string[]
+  ragFactsUsed: number
+}
+
 export interface AgentRespondResponse {
   question: string
   answer: string
@@ -36,6 +58,7 @@ export interface AgentRespondResponse {
   tool_trace: AgentToolTrace[]
   composer_mode: string
   backend_statuses: AgentBackendStatus[]
+  rag?: RagMeta
 }
 
 // ── Normalised UI result ──────────────────────────────────────────────────────
@@ -57,6 +80,9 @@ export interface BackendPipelineResult {
     guard: string
     respond: string
   }
+  /** SBC evidence items for citation panel (Component 70). Empty when RAG was not used. */
+  evidence: EvidenceItem[]
+  rag?: RagMeta
 }
 
 // ── LED status mapping ────────────────────────────────────────────────────────
@@ -100,6 +126,15 @@ export type VoiceRuntimeKind =
   | 'gemini-live-unavailable'
   | 'fallback'
 
+export type RagStatusKind =
+  | 'ready'
+  | 'key_missing'
+  | 'table_missing'
+  | 'empty'
+  | 'no_plan_links'
+  | 'db_error'
+  | 'unreachable'
+
 export interface VoiceRuntimeStatus {
   runtime: VoiceRuntimeKind
   model: string
@@ -107,6 +142,12 @@ export interface VoiceRuntimeStatus {
   note: string
   tts_provider?: string    // "cartesia", "google", "system", "browser"
   tts_voice_name?: string  // display name, e.g. "Skylar"
+  // RAG readiness fields (Component 71)
+  rag_status?: RagStatusKind
+  rag_reason?: string
+  rag_chunks_count?: number
+  voyage_configured?: boolean
+  pgvector_available?: boolean
 }
 
 /**
@@ -123,6 +164,26 @@ export async function fetchRuntimeStatus(): Promise<VoiceRuntimeStatus> {
   } catch {
     return { runtime: 'fallback', model: '', voice: '', note: 'Backend unavailable.' }
   }
+}
+
+// ── Evidence extraction ───────────────────────────────────────────────────────
+
+/** Extract display-safe evidence items from the backend response (Component 70).
+ *  Returns [] when RAG was not used or produced no chunks — never creates fake citations.
+ */
+function extractEvidence(data: AgentRespondResponse): EvidenceItem[] {
+  if (!data.rag?.ragAvailable || !data.rag.ragChunksCount) return []
+  const rawEvidence = (data as unknown as Record<string, unknown>)['evidence']
+  if (!Array.isArray(rawEvidence) || rawEvidence.length === 0) return []
+  return rawEvidence.map((item: unknown) => {
+    const e = item as Record<string, unknown>
+    return {
+      text:        typeof e['text'] === 'string' ? e['text'] : '',
+      sectionName: typeof e['sectionName'] === 'string' ? e['sectionName'] : '',
+      sourceFile:  typeof e['sourceFile'] === 'string' ? e['sourceFile'] : '',
+      distance:    typeof e['distance'] === 'number' ? e['distance'] : 1.0,
+    }
+  }).filter(e => e.text.length > 0)
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -163,6 +224,8 @@ export async function sendVoiceAgentQuestion(
       composer_mode: data.composer_mode,
       backends:      normalisedBackends(data.backend_statuses),
       pipeDetails:   pipeDetails(data),
+      evidence:      extractEvidence(data),
+      rag:           data.rag,
     }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') throw err

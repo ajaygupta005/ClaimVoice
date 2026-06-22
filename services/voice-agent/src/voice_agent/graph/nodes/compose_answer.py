@@ -18,6 +18,7 @@ def compose_answer(state: AgentState) -> AgentState:
         tool_result=state.get("tool_result", ""),
         tool_facts=state.get("tool_facts", []),
         member_context="",
+        rag_chunks=state.get("rag_chunks") or [],  # Component 69: SBC evidence for Claude
     )
     out = _composer.compose(inp)
     return {**state, "answer_text": out.answer_text}

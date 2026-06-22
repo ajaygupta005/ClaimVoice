@@ -13,6 +13,10 @@ class _Resp:
         self._d = data
         self.status_code = status
 
+    @property
+    def is_success(self):
+        return self.status_code < 400
+
     def raise_for_status(self):
         if self.status_code >= 400:
             raise RuntimeError(f"http {self.status_code}")
@@ -91,12 +95,14 @@ def test_provider_http_parses(monkeypatch):
     assert len(r.facts) == 2
 
 
-# ── http errors fall back to the mock string ───────────────────────────────────
+# ── http errors return safe typed error (no silent mock fallback) ─────────────
 
-def test_coverage_http_falls_back_to_mock(monkeypatch):
-    def boom(*a, **k):
-        raise RuntimeError("backend down")
-
-    monkeypatch.setattr(cc.httpx, "get", boom)
+def test_coverage_http_error_is_safe(monkeypatch):
+    import httpx as _httpx
+    monkeypatch.setattr(cc.httpx, "get", lambda *a, **k: (_ for _ in ()).throw(_httpx.RequestError("down")))
     r = cc.run("Is an MRI covered?", member_id="X", mode="http", base_url="http://x")
-    assert r.result.startswith("covered — MRI")  # mock fallback
+    assert r.ok is False
+    assert r.data_source == "error"
+    assert r.error_code == "service_unavailable"
+    # Must NOT fabricate a coverage claim
+    assert not r.result.startswith("covered — MRI")

@@ -64,6 +64,37 @@ _DRUGS: list[tuple[str, str, int, bool, bool]] = [
 _TARGET_LAT, _TARGET_LNG = 40.7580, -73.9855  # Midtown Manhattan
 _PROCEDURES = ["99213", "70551", "G0463"]      # office visit, MRI brain, outpatient
 _IN_NETWORK_PROVIDERS = 20                      # link the N nearest providers
+_DEMO_SBC_SOURCE_FILE = "claimvoice_demo_sbc_seeded.txt"
+
+# Local-demo SBC snippets. These mirror the structured seed rows above so RAG
+# evidence, guard facts, and DB-backed tools agree during the demo.
+_DEMO_SBC_CHUNKS: list[tuple[str, str]] = [
+    (
+        "Medical Benefits",
+        (
+            "ClaimVoice Demo PPO, shown in the demo UI as Silver PPO 4500, covers "
+            "MRI and diagnostic imaging when medically necessary. In-network MRI "
+            "and diagnostic imaging are subject to 20% coinsurance after applicable "
+            "cost sharing, and prior authorization is required before scheduling."
+        ),
+    ),
+    (
+        "Office and Urgent Care Visits",
+        (
+            "ClaimVoice Demo PPO in-network cost sharing: primary care office visits "
+            "have a $30 copay, specialist visits have a $50 copay, urgent care has a "
+            "$75 copay, and emergency room services have a $250 copay."
+        ),
+    ),
+    (
+        "Prescription Drug Coverage",
+        (
+            "The ClaimVoice Demo PPO formulary includes Lisinopril as a Tier 1 drug "
+            "without prior authorization or step therapy. Humira is a Tier 4 drug and "
+            "requires both prior authorization and step therapy."
+        ),
+    ),
+]
 
 
 def _db_url() -> str:
@@ -108,6 +139,93 @@ def _has_rows(cur: psycopg.Cursor, table: str, plan_id: str) -> bool:
         (plan_id, _AUDIT),
     )
     return cur.fetchone() is not None
+
+
+def _sbc_chunks_table_exists(cur: psycopg.Cursor) -> bool:
+    cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'sbc_chunks'")
+    return cur.fetchone() is not None
+
+
+def _seed_demo_sbc_chunks(cur: psycopg.Cursor, plan_id: str) -> None:
+    """Seed local-demo RAG chunks for the canonical demo plan.
+
+    The normal SBC ingest path depends on external PDFs. That is appropriate for
+    real data, but brittle for a local demo because payer URLs often return HTML,
+    login pages, or moved documents. These chunks provide a deterministic demo
+    fallback while still using real Voyage embeddings and the same `sbc_chunks`
+    retrieval path as production.
+    """
+    if not _sbc_chunks_table_exists(cur):
+        _LOG.warning("sbc_chunks table not found — skipping demo SBC chunk seed")
+        return
+
+    cur.execute(
+        """
+        SELECT count(*)
+        FROM sbc_chunks
+        WHERE plan_id = %s::uuid AND source_file = %s
+        """,
+        (plan_id, _DEMO_SBC_SOURCE_FILE),
+    )
+    existing = int(cur.fetchone()[0])
+    if existing >= len(_DEMO_SBC_CHUNKS):
+        _LOG.info("demo SBC chunks already present — skipping")
+        return
+
+    voyage_api_key = os.environ.get("VOYAGE_API_KEY", "").strip()
+    if not voyage_api_key:
+        _LOG.warning("VOYAGE_API_KEY is not set — skipping demo SBC chunk seed")
+        return
+
+    try:
+        import voyageai
+    except ImportError:
+        _LOG.warning("voyageai package not installed — skipping demo SBC chunk seed")
+        return
+
+    texts = [text for _, text in _DEMO_SBC_CHUNKS]
+    model = os.environ.get("VOYAGE_MODEL", "voyage-4-large")
+    try:
+        client = voyageai.Client(api_key=voyage_api_key)
+        embeddings = client.embed(texts, model=model, input_type="document").embeddings
+    except Exception as exc:
+        _LOG.warning("Voyage embedding failed — skipping demo SBC chunk seed: %s", exc)
+        return
+
+    cur.executemany(
+        """
+        INSERT INTO sbc_chunks
+            (plan_id, source_file, section_name, chunk_index, chunk_text, embedding, page_number)
+        VALUES
+            (%s::uuid, %s, %s, %s, %s, %s::vector, %s)
+        ON CONFLICT (plan_id, source_file, section_name, chunk_index)
+        DO UPDATE SET
+            chunk_text = EXCLUDED.chunk_text,
+            embedding = EXCLUDED.embedding,
+            page_number = EXCLUDED.page_number
+        """,
+        [
+            (
+                plan_id,
+                _DEMO_SBC_SOURCE_FILE,
+                section_name,
+                idx,
+                text,
+                str(embedding),
+                idx + 1,
+            )
+            for idx, ((section_name, text), embedding) in enumerate(
+                zip(_DEMO_SBC_CHUNKS, embeddings)
+            )
+        ],
+    )
+    _audit(
+        cur,
+        "sbc_chunks",
+        f"{_PLAN_NAME}:{_DEMO_SBC_SOURCE_FILE}",
+        {"source_file": _DEMO_SBC_SOURCE_FILE, "chunks": len(_DEMO_SBC_CHUNKS)},
+    )
+    _LOG.info("demo SBC chunks inserted/updated: %d", len(_DEMO_SBC_CHUNKS))
 
 
 def seed(conn: psycopg.Connection) -> None:
@@ -169,6 +287,8 @@ def seed(conn: psycopg.Connection) -> None:
             _LOG.info("demo formulary inserted: %d", len(_DRUGS))
         else:
             _LOG.info("demo formulary already present — skipping")
+
+        _seed_demo_sbc_chunks(cur, plan_id)
 
         # Member (idempotent on unique member_id)
         cur.execute(

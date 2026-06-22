@@ -46,9 +46,12 @@ def check_grounding_mock(
         al = answer.lower()
         if "not covered" in al and "not covered" not in facts_text and "covered" in facts_text:
             ungrounded.append("not covered")
+        has_prior_auth_fact = (
+            "prior auth" in facts_text or "prior authorization" in facts_text
+        )
         if (
             "prior authorization required" in al or "prior auth required" in al
-        ) and "prior auth" not in facts_text:
+        ) and not has_prior_auth_fact:
             ungrounded.append("prior authorization required")
 
     return (not ungrounded), ungrounded

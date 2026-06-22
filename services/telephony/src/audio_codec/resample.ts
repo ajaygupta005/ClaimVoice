@@ -1,6 +1,14 @@
 // Linear-interpolation resample between PCM16 sample rates.
 // Used to go 8 kHz <-> 24 kHz between Twilio and the voice agent.
 
+/**
+ * Resample PCM16 little-endian audio between sample rates using linear
+ * interpolation. Returns the same buffer when rates match. A trailing odd
+ * byte is ignored rather than read past the end.
+ *
+ * @param fromRate source sample rate in Hz (e.g. 8000)
+ * @param toRate   target sample rate in Hz (e.g. 24000)
+ */
 export function resamplePcm16(buf: Buffer, fromRate: number, toRate: number): Buffer {
   if (fromRate === toRate) return buf
   // PCM16 is 2 bytes per sample; ignore a trailing odd byte rather than

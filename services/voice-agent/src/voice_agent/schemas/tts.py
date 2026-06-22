@@ -68,5 +68,6 @@ class TtsSynthesizeResponse(BaseModel):
     voiceName: str = ""
     mimeType: str = ""
     audioBase64: str = ""
-    reason: str = ""          # set when ok=False
-    fallback: str = "browser" # set when ok=False
+    reason: str = ""           # set when ok=False — human-readable
+    errorCode: str = ""        # machine-readable: cartesia_timeout, cartesia_http_401, etc.
+    fallback: str = "browser"  # set when ok=False

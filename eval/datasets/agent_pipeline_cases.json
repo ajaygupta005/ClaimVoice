@@ -130,5 +130,93 @@
     "expected_grounded": true,
     "expected_escalate": false,
     "notes": "OOP max question — specific dollar amount must be present."
+  },
+  {
+    "id": "physical-therapy-coverage",
+    "question": "Is physical therapy covered under my plan?",
+    "expected_intent": "coverage",
+    "expected_tool": "check_coverage",
+    "required_phrases": ["physical therapy", "covered"],
+    "forbidden_phrases": ["not covered", "denied"],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Rehabilitative services coverage check."
+  },
+  {
+    "id": "specialist-visit-cost",
+    "question": "What is my specialist copay?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["specialist", "$50"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Specialist copay question — mock returns $50 copay."
+  },
+  {
+    "id": "metformin-formulary",
+    "question": "Is metformin on my formulary?",
+    "expected_intent": "formulary",
+    "expected_tool": "check_formulary",
+    "required_phrases": ["metformin", "Tier 1"],
+    "forbidden_phrases": ["not covered", "denied"],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Common diabetes generic — must use 'formulary' keyword to route correctly."
+  },
+  {
+    "id": "dermatologist-search",
+    "question": "Can you find a dermatologist in my network?",
+    "expected_intent": "provider",
+    "expected_tool": "find_provider",
+    "required_phrases": ["dermatolog"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Provider search with specialty, in-network filter."
+  },
+  {
+    "id": "billing-dispute",
+    "question": "I was billed twice for the same visit. Can you fix it?",
+    "expected_intent": "escalate",
+    "expected_tool": "escalate_to_human",
+    "required_phrases": ["specialist", "connect"],
+    "forbidden_phrases": [],
+    "expected_grounded": false,
+    "expected_escalate": true,
+    "notes": "Billing corrections require a human agent."
+  },
+  {
+    "id": "out-of-scope-weather",
+    "question": "What is the weather in New York today?",
+    "expected_intent": "escalate",
+    "expected_tool": "escalate_to_human",
+    "required_phrases": [],
+    "forbidden_phrases": ["covered", "copay", "deductible"],
+    "expected_grounded": false,
+    "expected_escalate": true,
+    "notes": "Completely out-of-scope — must escalate without fabricating plan facts."
+  },
+  {
+    "id": "er-visit-cost",
+    "question": "What will an ER visit cost me?",
+    "expected_intent": "cost",
+    "expected_tool": "estimate_cost",
+    "required_phrases": ["$"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "ER cost question — should return a dollar amount."
+  },
+  {
+    "id": "prior-auth-surgery",
+    "question": "Do I need prior authorization for knee replacement surgery?",
+    "expected_intent": "coverage",
+    "expected_tool": "check_coverage",
+    "required_phrases": ["surgery"],
+    "forbidden_phrases": [],
+    "expected_grounded": true,
+    "expected_escalate": false,
+    "notes": "Prior auth check for elective surgery."
   }
 ]

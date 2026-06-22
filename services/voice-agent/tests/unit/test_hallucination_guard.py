@@ -7,28 +7,28 @@ from voice_agent.graph.nodes.hallucination_guard import hallucination_guard
 
 
 def test_grounded_amount():
-    ok, ung = g.check_in_process("Your copay is $75.", ["urgent care copay $75"])
-    assert ok and ung == []
+    result = g.check_in_process("Your copay is $75.", ["urgent care copay $75"])
+    assert result.grounded and result.unsupported_claims == []
 
 
 def test_ungrounded_amount():
-    ok, ung = g.check_in_process("It costs $999.", ["copay $75"])
-    assert not ok and "$999" in ung
+    result = g.check_in_process("It costs $999.", ["copay $75"])
+    assert not result.grounded and "$999" in result.unsupported_claims
 
 
 def test_grounded_tier():
-    ok, _ = g.check_in_process("Lisinopril is Tier 1.", ["Lisinopril is on formulary, Tier 1"])
-    assert ok
+    result = g.check_in_process("Lisinopril is Tier 1.", ["Lisinopril is on formulary, Tier 1"])
+    assert result.grounded
 
 
 def test_ungrounded_tier():
-    ok, ung = g.check_in_process("Humira is Tier 2.", ["Humira is on formulary, Tier 4"])
-    assert not ok and any("Tier 2" in u for u in ung)
+    result = g.check_in_process("Humira is Tier 2.", ["Humira is on formulary, Tier 4"])
+    assert not result.grounded and any("Tier 2" in u for u in result.unsupported_claims)
 
 
 def test_prior_auth_ungrounded_when_facts_silent():
-    ok, _ = g.check_in_process("Prior authorization required.", ["MRI is covered"])
-    assert not ok
+    result = g.check_in_process("Prior authorization required.", ["MRI is covered"])
+    assert not result.grounded
 
 
 def test_fact_check_http(monkeypatch):
@@ -40,9 +40,9 @@ def test_fact_check_http(monkeypatch):
             return {"grounded": False, "guardReason": "ungrounded claims: ['$999']"}
 
     monkeypatch.setattr(g.httpx, "post", lambda *a, **k: _R())
-    grounded, reason = g.fact_check("It costs $999.", ["copay $75"], "http", "http://x")
-    assert grounded is False
-    assert "ungrounded" in reason
+    result = g.fact_check("It costs $999.", ["copay $75"], "http", "http://x")
+    assert result.grounded is False
+    assert "ungrounded" in result.reason
 
 
 def test_fact_check_http_falls_back(monkeypatch):
@@ -50,11 +50,21 @@ def test_fact_check_http_falls_back(monkeypatch):
         raise RuntimeError("backend down")
 
     monkeypatch.setattr(g.httpx, "post", boom)
-    grounded, _ = g.fact_check("It costs $999.", ["copay $75"], "http", "http://x")
-    assert grounded is False  # in-process fallback still flags it
+    result = g.fact_check("It costs $999.", ["copay $75"], "http", "http://x")
+    assert result.grounded is False  # in-process fallback still flags it
 
 
 def test_node_escalate_passes():
-    s = hallucination_guard({"intent": "escalate", "answer_text": "x", "tool_result": ""})
+    s = hallucination_guard({
+        "intent": "escalate",
+        "answer_text": "x",
+        "tool_result": "",
+        "tool_facts": [],
+        "rag_chunks": [],
+        "guard_reason_code": "",
+        "guard_supported_by": [],
+        "guard_unsupported_claims": [],
+        "guard_rag_facts_used": 0,
+    })
     assert s["grounded"] is False
     assert "escalat" in s["guard_reason"].lower()
