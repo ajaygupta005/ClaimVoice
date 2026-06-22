@@ -63,6 +63,32 @@ class PipelineSummary(BaseModel):
     error: str = ""         # non-empty only when the pipeline itself failed
 
 
+class RagMetaItem(BaseModel):
+    """RAG retrieval + guard metadata in HTTP responses (Component 68/69)."""
+    ragAttempted: bool = False
+    ragAvailable: bool = False
+    ragChunksCount: int = 0
+    ragFallbackReason: str = ""
+    ragSource: str = ""
+    # Guard fields (Component 69)
+    guardPassed: bool = False
+    guardReasonCode: str = ""
+    supportedBy: list[str] = []
+    unsupportedClaims: list[str] = []
+    ragFactsUsed: int = 0
+
+
+class EvidenceItem(BaseModel):
+    """Single SBC evidence citation surfaced to the UI (Component 70).
+
+    Only safe display fields — no backend credentials or raw embeddings.
+    """
+    text: str           # chunk text (max 400 chars)
+    sectionName: str
+    sourceFile: str
+    distance: float
+
+
 class AgentRespondResponse(BaseModel):
     question: str
     answer: str
@@ -75,3 +101,5 @@ class AgentRespondResponse(BaseModel):
     member_source: str          # "provided" | "demo" | "missing"
     backend_statuses: list[dict[str, str]]
     pipeline: PipelineSummary
+    rag: RagMetaItem = RagMetaItem()
+    evidence: list[EvidenceItem] = []   # Component 70: SBC citations for UI

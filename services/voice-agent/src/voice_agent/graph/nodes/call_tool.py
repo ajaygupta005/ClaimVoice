@@ -104,4 +104,5 @@ def call_tool(state: AgentState) -> AgentState:
         "tool_facts": res.facts,
         "tool_trace": existing_trace + [trace_entry],
         "member_id": member_id,
+        "plan_id": res.args.get("planId") or state.get("plan_id", ""),
     }

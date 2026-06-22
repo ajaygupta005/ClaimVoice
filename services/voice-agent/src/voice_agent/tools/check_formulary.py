@@ -88,7 +88,7 @@ def _http(question: str, member_id: str, base_url: str) -> ToolResult:
         result = f"{drug} is not on your plan formulary"
     return ToolResult(
         result=result,
-        args={"drug": drug, "memberId": member_id},
+        args={"drug": drug, "memberId": member_id, "planId": str(d.get("planId") or "")},
         ok=True,
         facts=facts,
         data_source="real",

@@ -511,6 +511,43 @@ def _runtime_status_check() -> None:
         ok(f"Voice runtime: {runtime}")
 
 
+def _rag_readiness_check() -> None:
+    """Report SBC RAG readiness from the running eligibility service (Component 71)."""
+    url = "http://localhost:8002/api/v1/rag/readiness"
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        warn(f"RAG readiness status unavailable at {url}: {exc}")
+        return
+
+    try:
+        import json
+        data = json.loads(body)
+    except Exception:
+        warn(f"RAG readiness returned non-JSON: {body[:160]}")
+        return
+
+    rag_status = str(data.get("ragStatus", "unknown"))
+    rag_reason = str(data.get("ragReason", ""))
+    chunks = int(data.get("sbcChunksCount", 0))
+
+    if rag_status == "ready":
+        ok(f"SBC RAG: ready  ({chunks} chunks)")
+    elif rag_status == "key_missing":
+        warn("SBC RAG: VOYAGE_API_KEY not configured — RAG unavailable (demo mode unaffected)")
+    elif rag_status == "table_missing":
+        warn(f"SBC RAG: table or pgvector missing — {rag_reason}")
+    elif rag_status == "empty":
+        warn("SBC RAG: sbc_chunks table is empty — run sbc_embed_ingest to populate")
+    elif rag_status == "no_plan_links":
+        warn(f"SBC RAG: chunks exist but no plan links — {rag_reason}")
+    elif rag_status == "db_error":
+        warn(f"SBC RAG: database error — {rag_reason}")
+    else:
+        warn(f"SBC RAG: {rag_status} — {rag_reason}")
+
+
 def _port_in_use(port: int) -> bool:
     """Return True when a local TCP port is already accepting connections."""
     for family, host in [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")]:
@@ -652,6 +689,7 @@ def start_services() -> None:
 
     hdr("All services healthy")
     _runtime_status_check()
+    _rag_readiness_check()
     print()
     info("  Web app        →  http://localhost:3000")
     info("  API gateway    →  http://localhost:8080")

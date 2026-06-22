@@ -15,6 +15,26 @@ export interface AgentRespondRequest {
   source?: 'typed' | 'voice' | 'demo'
 }
 
+export interface AgentEvidenceItem {
+  text: string
+  sectionName: string
+  sourceFile: string
+  distance: number
+}
+
+export interface AgentRagMeta {
+  ragAttempted: boolean
+  ragAvailable: boolean
+  ragChunksCount: number
+  ragFallbackReason: string
+  ragSource: string
+  guardPassed: boolean
+  guardReasonCode: string
+  supportedBy: string[]
+  unsupportedClaims: string[]
+  ragFactsUsed: number
+}
+
 export interface AgentRespondResult {
   question: string
   answer: string
@@ -24,6 +44,8 @@ export interface AgentRespondResult {
   composer_mode: string
   tool_trace: Array<{ tool: string; args: Record<string, unknown>; result: string; ok: boolean }>
   backend_statuses: Array<{ label: string; detail: string; status: string }>
+  rag?: AgentRagMeta
+  evidence?: AgentEvidenceItem[]
 }
 
 export interface VoiceRuntimeStatusResult {

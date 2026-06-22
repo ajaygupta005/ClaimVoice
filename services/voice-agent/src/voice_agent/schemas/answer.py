@@ -36,6 +36,22 @@ class ToolTrace(BaseModel):
     member_source: str = ""     # "provided" | "demo" | "missing"
 
 
+class RagMeta(BaseModel):
+    """RAG retrieval + guard metadata (Component 68/69). Present on every answer."""
+    ragAttempted: bool = False
+    ragAvailable: bool = False
+    ragChunksCount: int = 0
+    ragFallbackReason: str = ""
+    ragSource: str = ""
+    # Guard fields (Component 69)
+    guardPassed: bool = False
+    guardReasonCode: str = ""        # supported_by_structured_tool | supported_by_sbc_rag |
+                                     #   unsupported_claim | no_facts_available | rag_unavailable
+    supportedBy: list[str] = []      # ["structured_tool"] | ["sbc_rag"] | both
+    unsupportedClaims: list[str] = []
+    ragFactsUsed: int = 0
+
+
 class AnswerFinalEvent(BaseModel):
     type: Literal["answer.final"] = "answer.final"
     callSid: str
@@ -44,3 +60,5 @@ class AnswerFinalEvent(BaseModel):
     text: str
     grounded: bool
     tool_trace: list[ToolTrace]
+    rag: RagMeta = RagMeta()
+    rag_chunks: list[dict[str, Any]] = []   # Component 70: raw chunks for evidence UI

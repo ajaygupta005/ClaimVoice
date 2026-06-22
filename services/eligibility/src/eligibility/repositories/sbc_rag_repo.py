@@ -22,10 +22,10 @@ def search_sbc_chunks(
                 chunk_text,
                 section_name,
                 source_file,
-                (embedding <=> :query_vec::vector) AS distance
+                (embedding <=> CAST(:query_vec AS vector)) AS distance
             FROM sbc_chunks
             WHERE plan_id = :plan_id
-            ORDER BY embedding <=> :query_vec::vector
+            ORDER BY embedding <=> CAST(:query_vec AS vector)
             LIMIT :top_k
         """),
         {"plan_id": str(plan_id), "query_vec": vec_literal, "top_k": top_k},

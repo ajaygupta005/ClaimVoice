@@ -109,7 +109,7 @@ def _http(question: str, member_id: str, base_url: str) -> ToolResult:
         parts.append(f"{service} is not a covered benefit under your plan")
     return ToolResult(
         result=", ".join(parts),
-        args={"service": service, "memberId": member_id},
+        args={"service": service, "memberId": member_id, "planId": str(d.get("planId") or "")},
         ok=True,
         facts=d.get("facts", []),
         data_source="real",

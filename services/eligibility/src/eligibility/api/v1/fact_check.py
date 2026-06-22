@@ -13,9 +13,10 @@ router = APIRouter()
 
 @router.post("/fact_check", response_model=FactCheckResponse)
 def fact_check_endpoint(req: FactCheckRequest) -> FactCheckResponse:
+    facts = [*req.facts, *req.ragFacts]
     return fact_check(
         req.answer,
-        req.facts,
+        facts,
         req.claimTypes,
         mode=settings.fact_check_mode,
         api_key=settings.anthropic_api_key,
