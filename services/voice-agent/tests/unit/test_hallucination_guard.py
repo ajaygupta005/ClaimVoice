@@ -54,6 +54,38 @@ def test_fact_check_http_falls_back(monkeypatch):
     assert result.grounded is False  # in-process fallback still flags it
 
 
+def _provider_state(data_source: str, ok: bool) -> dict:
+    return {
+        "intent": "provider",
+        "answer_text": "I found three cardiologists near you: James Whitfield, Henry Cho, Maria Reyes.",
+        "tool_result": "3 cardiologist providers found near you — James Whitfield 0.2 km",
+        "tool_facts": ["James Whitfield 0.2 km (in-network)"],
+        "tool_trace": [{"tool": "find_provider", "data_source": data_source, "ok": ok}],
+        "rag_chunks": [],
+        "guard_reason_code": "",
+        "guard_supported_by": [],
+        "guard_unsupported_claims": [],
+        "guard_rag_facts_used": 0,
+    }
+
+
+def test_node_provider_real_directory_is_grounded():
+    """A successful real directory result is grounded without invoking the judge."""
+    s = hallucination_guard(_provider_state("real", True))
+    assert s["grounded"] is True
+    assert s["guard_supported_by"] == ["structured_tool"]
+    assert s["guard_unsupported_claims"] == []
+
+
+def test_node_provider_demo_falls_through_to_matcher():
+    """Demo-mode providers don't hit the real-directory shortcut (still grounded via matcher)."""
+    s = hallucination_guard(_provider_state("demo", True))
+    # No $/tier/coverage claims in the listing → in-process matcher passes it too,
+    # but via the normal path, not the real-directory shortcut.
+    assert s["grounded"] is True
+    assert s["guard_reason"] != "provider listing sourced from the real directory"
+
+
 def test_node_escalate_passes():
     s = hallucination_guard({
         "intent": "escalate",
