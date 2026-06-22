@@ -1,14 +1,22 @@
-"""Unit tests for prepare_response — enforces 'Claude narrates only if grounded'."""
+"""Unit tests for prepare_response — 'narrate only if grounded' for benefit figures.
+
+Suppression is scoped to cost/coverage/formulary (answers that assert copays,
+deductibles, tiers, or coverage decisions). Provider listings are not gated, so
+a flaky guard flag never escalates a legitimate directory result.
+"""
 
 from __future__ import annotations
+
+import pytest
 
 from voice_agent.graph.nodes.prepare_response import _UNVERIFIED_FALLBACK, prepare_response
 
 
-def test_ungrounded_factual_answer_is_replaced_and_escalated() -> None:
-    """A factual intent whose answer failed the guard must not surface the claim."""
+@pytest.mark.parametrize("intent", ["cost", "coverage", "formulary"])
+def test_ungrounded_benefit_answer_is_replaced_and_escalated(intent: str) -> None:
+    """A cost/coverage/formulary answer that failed the guard must not surface the claim."""
     state = {
-        "intent": "cost",
+        "intent": intent,
         "grounded": False,
         "answer_text": "Your out-of-network ER copay is $250.",
         "tool_trace": [{"tool": "estimate_cost", "ok": True}],
@@ -18,11 +26,26 @@ def test_ungrounded_factual_answer_is_replaced_and_escalated() -> None:
     assert out["answer_text"] == _UNVERIFIED_FALLBACK
     assert "$250" not in out["answer_text"]
     assert out["escalate"] is True
-    # guard result is reflected onto the real-tool entry
-    assert out["tool_trace"][0]["ok"] is False
+    assert out["tool_trace"][0]["ok"] is False  # guard result reflected onto the entry
 
 
-def test_grounded_factual_answer_is_preserved() -> None:
+def test_ungrounded_provider_answer_is_not_suppressed() -> None:
+    """Provider listings are not gated — a flaky guard flag must not escalate them."""
+    answer = "I found three cardiologists near you: James Whitfield, Henry Cho, Maria Reyes."
+    state = {
+        "intent": "provider",
+        "grounded": False,
+        "answer_text": answer,
+        "tool_trace": [{"tool": "find_provider", "ok": True}],
+    }
+    out = prepare_response(state)
+
+    assert out["answer_text"] == answer  # the directory result is still shown
+    assert out["escalate"] is False
+    assert out["tool_trace"][0]["ok"] is False  # guard verdict still reflected
+
+
+def test_grounded_benefit_answer_is_preserved() -> None:
     """Grounded answers pass through unchanged and do not escalate."""
     answer = "Yes, an MRI is covered at 20% coinsurance, prior authorization required."
     state = {
