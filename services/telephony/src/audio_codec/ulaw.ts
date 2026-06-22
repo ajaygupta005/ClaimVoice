@@ -12,6 +12,10 @@ for (let i = 0; i < 256; i++) {
   ULAW_DECODE[i] = sign * (t - 0x84)
 }
 
+/**
+ * Decode G.711 mu-law bytes (one byte per sample) to PCM16 little-endian.
+ * Output length is twice the input length.
+ */
 export function ulawToPcm16(buf: Buffer): Buffer {
   const out = Buffer.alloc(buf.length * 2)
   for (let i = 0; i < buf.length; i++) {
@@ -23,6 +27,10 @@ export function ulawToPcm16(buf: Buffer): Buffer {
 const ULAW_BIAS = 0x84
 const ULAW_CLIP = 32635
 
+/**
+ * Encode PCM16 little-endian samples to G.711 mu-law bytes.
+ * Output length is half the input length. Standard G.711: encode(0) === 0xFF.
+ */
 export function pcm16ToUlaw(buf: Buffer): Buffer {
   const out = Buffer.alloc(buf.length / 2)
   for (let i = 0; i < out.length; i++) {
