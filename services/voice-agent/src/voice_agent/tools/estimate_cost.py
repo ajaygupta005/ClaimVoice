@@ -12,7 +12,7 @@ from voice_agent.tools.schemas import ToolResult
 def _mock(question: str) -> ToolResult:
     if re.search(r"\b(copay|co-pay)\b", question, re.IGNORECASE):
         result = "copay $30 in-network primary care / $75 urgent care / $50 specialist"
-    elif re.search(r"\bdeductible\b", question, re.IGNORECASE):
+    elif re.search(r"\bdeduc", question, re.IGNORECASE):  # deductible / deduction (STT variants)
         result = "deductible $1,500 / YTD spent $450 / remaining $1,050"
     elif re.search(r"\b(oop|out.of.pocket)\b", question, re.IGNORECASE):
         result = "OOP max $5,000 / YTD spent $1,200 / remaining $3,800"
@@ -24,7 +24,7 @@ def _mock(question: str) -> ToolResult:
 def _cost_type(question: str) -> str:
     if re.search(r"\b(copay|co-pay)\b", question, re.IGNORECASE):
         return "copay"
-    if re.search(r"\bdeductible\b", question, re.IGNORECASE):
+    if re.search(r"\bdeduc", question, re.IGNORECASE):  # deductible / deduction (STT variants)
         return "deductible"
     if re.search(r"\b(oop|out.of.pocket)\b", question, re.IGNORECASE):
         return "oop"
