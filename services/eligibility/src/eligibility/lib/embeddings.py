@@ -24,6 +24,8 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,
             api_version=settings.azure_openai_api_version,
+            timeout=4.0,      # bound per-request latency (SDK default is ~600s)
+            max_retries=0,    # never let a slow embed hang the /coverage request
         )
         resp = client.embeddings.create(
             input=texts,

@@ -50,7 +50,7 @@ def _http(question: str, member_id: str, base_url: str) -> ToolResult:
     r = httpx.get(
         f"{base_url}/api/v1/coverage",
         params={"memberId": member_id, "service": service},
-        timeout=5.0,
+        timeout=20.0,  # /coverage does SBC RAG (embed) — allow headroom over the 4s embed bound
     )
     r.raise_for_status()
     d = r.json()
