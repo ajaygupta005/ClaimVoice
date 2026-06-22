@@ -37,6 +37,16 @@ function costShareDisplay(benefit: BenefitOut): string {
   return '—'
 }
 
+function isAbortError(err: unknown): boolean {
+  if (err instanceof Error && err.name === 'AbortError') return true
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name?: unknown }).name === 'AbortError'
+  )
+}
+
 // ── Source badge ──────────────────────────────────────────────────────────────
 
 function SourceBadge({ isDemo }: { isDemo: boolean }) {
@@ -170,41 +180,47 @@ export default function PlanDetailsView() {
   const [paExpanded, setPaExpanded] = useState(false)
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    setState('loading')
-    setData(null)
+    try {
+      setState('loading')
+      setData(null)
 
-    const summaryResult = await eligibilityGetMemberSummary(DEMO_MEMBER_ID, signal)
-    if (signal?.aborted) return
+      const summaryResult = await eligibilityGetMemberSummary(DEMO_MEMBER_ID, signal)
+      if (signal?.aborted) return
 
-    if (!summaryResult.ok) {
-      if (summaryResult.statusCode === 404) {
-        setState('not_found')
-      } else {
-        setState('unavailable')
+      if (!summaryResult.ok) {
+        if (summaryResult.statusCode === 404) {
+          setState('not_found')
+        } else {
+          setState('unavailable')
+        }
+        return
       }
-      return
-    }
 
-    const planId = summaryResult.data.plan.id
-    const benefitsResult = await eligibilityGetPlanBenefits(planId, signal)
-    if (signal?.aborted) return
+      const planId = summaryResult.data.plan.id
+      const benefitsResult = await eligibilityGetPlanBenefits(planId, signal)
+      if (signal?.aborted) return
 
-    if (!benefitsResult.ok) {
+      if (!benefitsResult.ok) {
+        setState('unavailable')
+        return
+      }
+
+      setData({
+        summary: summaryResult.data,
+        benefits: benefitsResult.data,
+        isDemo: summaryResult.isDemo || benefitsResult.isDemo,
+      })
+      setState('loaded')
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) return
+      console.warn('[ClaimVoice:PlanDetails] load failed', err)
       setState('unavailable')
-      return
     }
-
-    setData({
-      summary: summaryResult.data,
-      benefits: benefitsResult.data,
-      isDemo: summaryResult.isDemo || benefitsResult.isDemo,
-    })
-    setState('loaded')
   }, [])
 
   useEffect(() => {
     const ctrl = new AbortController()
-    load(ctrl.signal)
+    void load(ctrl.signal)
     return () => ctrl.abort()
   }, [load])
 
