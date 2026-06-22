@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server'
 const BASE = process.env.PROVIDERS_BASE_URL ?? 'http://localhost:8003'
 
 async function proxy(req: NextRequest, slug: string[]): Promise<NextResponse> {
-  const url = `${BASE}/api/v1/${slug.join('/')}${req.nextUrl.search}`
+  // providers endpoints live under /api/v1/providers/* (e.g. providers/near, providers/bulk)
+  const url = `${BASE}/api/v1/providers/${slug.join('/')}${req.nextUrl.search}`
   const init: RequestInit = {
     method: req.method,
     headers: { 'Content-Type': 'application/json' },
