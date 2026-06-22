@@ -51,9 +51,11 @@ Run-mode env (in `.env`): `TOOL_MODE=http`, `SBC_EMBED_PROVIDER=azure`, answer/f
 `mock` until a valid Anthropic key is in place; `STT_MODE=deepgram`, `TTS_MODE=cartesia`.
 
 ## Known limitations / follow-ups
-- **No cardiologists in the synthetic provider seed** → "find a cardiologist" correctly returns
-  "none found". Provider queries that return results: internal/family medicine, pediatrics,
-  psychiatry, emergency medicine. (Seed cardiology providers for a richer demo.)
+- **Cardiology seeded** via `data/ingest/seed_cardiology.sql` (6 providers near Midtown) so
+  "find a cardiologist near me" returns results. Other working specialties: internal/family
+  medicine, pediatrics, psychiatry, emergency medicine.
+- **Web proxy timeout** raised to 30s (`api/voice-agent/respond`) — Claude compose + fact-check
+  + SBC can take ~6-12s; the old 10s aborted into the browser mock fallback.
 - **Demo plan in-network** links are sparse → Providers tab in-network default is off; geo uses Haversine.
 - **Docker Desktop must be running** (Postgres :5433). If it stops, DB-backed calls hang — restart Docker + `docker compose up -d postgres` (the `pg_data` volume persists).
 - Browser **STT** is the free Web Speech API; Deepgram/Cartesia validated (keys ok) and used server-side.
