@@ -18,19 +18,20 @@ and switched to Azure embeddings. Everything below was executed and verified loc
 | **Eval gate** | `eval/tests -m "not integration"` → **51 passed**, 1 skipped (pre-existing stub). |
 | **Eligibility unit tests** | **35 passed.** |
 | **Dashboard** | Next proxies `api/{eligibility,providers}/[...slug]`; Plan + Providers tabs fetch live (mock fallback). Web **typecheck passes**; live proxy returns demo member's real summary. |
-| **API keys** | Azure embeddings ✅ · Deepgram ✅ (200) · Cartesia ✅ (200) · **Anthropic ❌ 401 invalid x-api-key**. |
+| **API keys** | Azure embeddings ✅ · Deepgram ✅ (200) · Cartesia ✅ (200) · **Anthropic ✅ (updated key — live Claude verified)**. |
+| **Live Claude E2E** | All 3 intents grounded with real Claude: coverage *"…20% coinsurance after your deductible, but prior authorization is required before the scan is performed…"* (SBC-cited); cost *"$1,050 remaining of your $1,500…"*; provider *"…John Gonzalez 1.56 km, Lisa Davis 2.16 km…"*. |
 
-## ⚠️ Blocker: Anthropic key invalid (401)
+## ✅ Resolved: live Claude path working
 
-The supplied `ANTHROPIC_API_KEY` returns **401 invalid x-api-key**. Consequence: the Claude
-answer composer and `claude` fact-check fall back. To keep the product working now,
-`.env` is set to `VOICE_AGENT_ANSWER_MODE=mock` and `FACT_CHECK_MODE=mock` (deterministic; the
-MockComposer's hardcoded figures match the demo plan, so demo answers are correct — except the
-provider answer uses a placeholder name).
+The Anthropic key was updated to a valid one; `.env` is now `VOICE_AGENT_ANSWER_MODE=claude` +
+`FACT_CHECK_MODE=claude`. Verified end-to-end (see "Live Claude E2E" above): Claude narrates from
+`tool_facts` incl. SBC passages, and the `/fact_check` guard runs in claude mode.
 
-**To enable the real Claude path:** put a valid key in `.env` and flip both back to `claude`.
-The composer already grounds on `tool_facts` (incl. SBC passages), so Claude answers will cite
-the Summary-of-Benefits text.
+Two live-run fixes applied during verification (committed):
+- **Embed hang** — bounded the AzureOpenAI client (`timeout=4s, max_retries=0`); the SDK default
+  (~600s) had let a slow embed hang `/coverage` (+ check_coverage tool timeout 5s→20s).
+- **Provider geo under PostGIS** — `near_candidates` now emits `ST_AsText(location::geometry)`; the
+  geography column returned EWKB hex the WKT parser couldn't read, so `/providers/near` returned 0.
 
 ## How to run
 
@@ -50,8 +51,10 @@ Run-mode env (in `.env`): `TOOL_MODE=http`, `SBC_EMBED_PROVIDER=azure`, answer/f
 `mock` until a valid Anthropic key is in place; `STT_MODE=deepgram`, `TTS_MODE=cartesia`.
 
 ## Known limitations / follow-ups
-- **Anthropic key invalid** — real Claude answers + claude fact-check blocked (see above).
-- **Provider answer** in mock-compose uses a placeholder name; real provider narration needs Claude.
+- **No cardiologists in the synthetic provider seed** → "find a cardiologist" correctly returns
+  "none found". Provider queries that return results: internal/family medicine, pediatrics,
+  psychiatry, emergency medicine. (Seed cardiology providers for a richer demo.)
 - **Demo plan in-network** links are sparse → Providers tab in-network default is off; geo uses Haversine.
+- **Docker Desktop must be running** (Postgres :5433). If it stops, DB-backed calls hang — restart Docker + `docker compose up -d postgres` (the `pg_data` volume persists).
 - Browser **STT** is the free Web Speech API; Deepgram/Cartesia validated (keys ok) and used server-side.
 - SBC corpus is **synthetic** (payor URLs 404) — swap in real SBC PDFs by updating `sbc_manifest.yaml`.
