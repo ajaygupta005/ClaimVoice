@@ -20,7 +20,8 @@ def _run(question: str):
 def test_member_is_always_verified():
     s = _run("Is an MRI covered?")
     assert s["member_verified"] is True
-    assert s["member_id"] == "MOCK-MEMBER-001"
+    # In demo_mode=True (default), MOCK-MEMBER-001 placeholder resolves to CVX-0042-MT
+    assert s["member_id"] == "CVX-0042-MT"
 
 
 # ── intent routing ─────────────────────────────────────────────────────────────

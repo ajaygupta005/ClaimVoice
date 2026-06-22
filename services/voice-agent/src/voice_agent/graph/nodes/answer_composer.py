@@ -34,6 +34,7 @@ class ComposerInput:
     tool_args: dict[str, Any]
     tool_result: str
     member_context: str = ""
+    rag_chunks: list[dict[str, Any]] = field(default_factory=list)  # Component 69
 
 
 @dataclass
@@ -166,10 +167,13 @@ class MockComposer(AnswerComposer):
 _SYSTEM_PROMPT = """\
 You are the answer narrator for ClaimVoice, an AI phone agent for US health insurance members.
 
-Your job is ONLY to turn structured tool facts into a concise, conversational phone answer.
+Your job is ONLY to turn structured tool facts and supporting SBC document excerpts into a concise, \
+conversational phone answer.
 
 Rules:
-- Use ONLY the facts provided in the tool_result field. Do not invent coverage, cost, drug, or provider facts.
+- Use ONLY the facts provided in tool_result and sbc_chunks. Do not invent coverage, cost, drug, or provider facts.
+- Structured tool_result is the primary source of truth; sbc_chunks are supporting evidence only.
+- If sbc_chunks is empty, do not mention citations, documents, or plan text.
 - If the tool_result does not contain enough information to answer, set needs_escalation to true.
 - Keep the answer brief and phone-friendly (1–3 sentences).
 - Do not mention internal systems, tool names, or implementation details.
@@ -214,12 +218,18 @@ class ClaudeComposer(AnswerComposer):
         if inp.intent == "help":
             return MockComposer().compose(inp)
 
+        sbc_chunks = [
+            {"chunkText": c.get("chunk_text", ""), "sectionName": c.get("section_name", "")}
+            for c in inp.rag_chunks
+            if c.get("chunk_text")
+        ]
         user_payload = json.dumps({
             "question": inp.question,
             "intent": inp.intent,
             "tool_name": inp.tool_name,
             "tool_result": inp.tool_result,
             "member_context": inp.member_context or "Silver PPO plan member",
+            "sbc_chunks": sbc_chunks,
         }, ensure_ascii=False)
 
         try:

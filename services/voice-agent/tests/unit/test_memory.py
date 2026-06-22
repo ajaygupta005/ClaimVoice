@@ -17,9 +17,10 @@ def test_session_memory_store():
     mem.clear("S1")
 
 
-def test_member_threading_default_is_mock():
+def test_member_threading_default_is_demo():
+    # Placeholder member ID is resolved to demo member in demo_mode=True
     s = run_agent_graph("Is an MRI covered?")
-    assert s["member_id"] == "MOCK-MEMBER-001"
+    assert s["member_id"] == "CVX-0042-MT"
 
 
 def test_member_threading_explicit():

@@ -13,14 +13,18 @@ Query parameters (set by the bridge):
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
+from voice_agent.core.config import settings
 from voice_agent.lib.logger import logger
+from voice_agent.observability.trace import TurnTracer
 from voice_agent.schemas.telephony_bridge import (
     AckResponse,
     AudioEvent,
@@ -49,6 +53,7 @@ class SessionState:
     audio_bytes_received: int = 0
     audio_frames: int = 0
     stopped: bool = False
+    last_turn_id: str = ""
     stt: Optional[StreamingSTT] = None
 
 
@@ -111,45 +116,155 @@ async def _handle_audio(ws: WebSocket, ev: AudioEvent, session: SessionState) ->
 
 async def _handle_stop(ws: WebSocket, ev: StopEvent, session: SessionState) -> None:
     session.stopped = True
+    turn_id = uuid.uuid4().hex
+    session.last_turn_id = turn_id
 
     # Flush the STT adapter to get the final transcript before closing
-    if session.stt is not None:
-        final = session.stt.flush()
-        if final is not None:
-            logger.info(
-                "stt.final",
+    if session.stt is None:
+        logger.info(
+            "bridge.session_stopped",
+            call_sid=ev.callSid,
+            stream_sid=ev.streamSid,
+            audio_bytes=session.audio_bytes_received,
+            audio_frames=session.audio_frames,
+            turn_id=turn_id,
+        )
+        await _send_ack(ws, AckResponse(ack="stop", callSid=ev.callSid, streamSid=ev.streamSid))
+        return
+
+    final = session.stt.flush()
+    if final is None:
+        logger.info(
+            "stt.silent",
+            call_sid=ev.callSid,
+            stream_sid=ev.streamSid,
+            audio_frames=session.audio_frames,
+            turn_id=turn_id,
+        )
+        await _send_ack(ws, AckResponse(ack="stop", callSid=ev.callSid, streamSid=ev.streamSid))
+        return
+
+    logger.info(
+        "stt.final",
+        call_sid=ev.callSid,
+        stream_sid=ev.streamSid,
+        text=final.text,
+        confidence=final.confidence,
+        duration_ms=final.duration_ms,
+        turn_id=turn_id,
+    )
+    await _send_json(ws, final.model_dump_json())
+
+    # Orchestrate a grounded answer — hardened against pipeline errors and timeouts.
+    with TurnTracer(
+        turn_id=turn_id,
+        scenario_id=f"phone:{ev.callSid}",
+        question=final.text,
+    ) as tracer:
+        try:
+            _timeout = settings.orchestrate_timeout_s or None
+            if _timeout:
+                answer = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(None, orchestrate, final),
+                    timeout=_timeout,
+                )
+            else:
+                answer = await asyncio.get_event_loop().run_in_executor(None, orchestrate, final)
+            tracer.set_result(answer)
+        except asyncio.TimeoutError:
+            tracer.set_error("orchestrate_timeout")
+            logger.error(
+                "orchestrate.timeout",
                 call_sid=ev.callSid,
                 stream_sid=ev.streamSid,
-                text=final.text,
-                confidence=final.confidence,
-                duration_ms=final.duration_ms,
+                turn_id=turn_id,
+                timeout_s=_timeout,
             )
-            await _send_json(ws, final.model_dump_json())
-
-            # Orchestrate a grounded answer from the transcript
-            answer = orchestrate(final)
-            logger.info(
-                "answer.final",
+            await _send_error(ws, "orchestrate_error", f"timeout after {_timeout}s")
+            await _send_ack(ws, AckResponse(ack="stop", callSid=ev.callSid, streamSid=ev.streamSid))
+            return
+        except Exception as exc:
+            tracer.set_error(str(exc))
+            logger.error(
+                "orchestrate.error",
                 call_sid=ev.callSid,
                 stream_sid=ev.streamSid,
-                intent=answer.intent,
-                grounded=answer.grounded,
-                tools=[t.tool for t in answer.tool_trace],
+                turn_id=turn_id,
+                error=str(exc),
             )
-            await _send_json(ws, answer.model_dump_json())
+            await _send_error(ws, "orchestrate_error", str(exc))
+            await _send_ack(ws, AckResponse(ack="stop", callSid=ev.callSid, streamSid=ev.streamSid))
+            return
 
-            # Synthesize the answer into TTS audio chunks
+    logger.info(
+        "answer.final",
+        call_sid=ev.callSid,
+        stream_sid=ev.streamSid,
+        intent=answer.intent,
+        grounded=answer.grounded,
+        guard_passed=answer.grounded,
+        tools=[t.tool for t in answer.tool_trace],
+        tool_trace=[
+            {
+                "tool": t.tool,
+                "ok": t.ok,
+                "data_source": getattr(t, "data_source", "demo"),
+                "error_code": getattr(t, "error_code", ""),
+            }
+            for t in answer.tool_trace
+        ],
+        turn_id=turn_id,
+    )
+    await _send_json(ws, answer.model_dump_json())
+
+    # Synthesize TTS audio — hardened against TTS errors and timeouts.
+    tts_chunks = 0
+    tts_error = ""
+    try:
+        _tts_timeout = settings.tts_timeout_s or None
+
+        async def _do_tts() -> tuple[int, list]:
             tts = build_tts()
-            tts_events = tts.synthesize(answer.text, ev.callSid, ev.streamSid)
-            audio_count = sum(1 for e in tts_events if isinstance(e, TtsAudioEvent))
-            logger.info(
-                "tts.synthesized",
-                call_sid=ev.callSid,
-                stream_sid=ev.streamSid,
-                chunks=audio_count,
-            )
-            for tts_ev in tts_events:
-                await _send_json(ws, tts_ev.model_dump_json())
+            events = list(tts.synthesize(answer.text, ev.callSid, ev.streamSid))
+            return sum(1 for e in events if isinstance(e, TtsAudioEvent)), events
+
+        if _tts_timeout:
+            chunks, tts_events = await asyncio.wait_for(_do_tts(), timeout=_tts_timeout)
+        else:
+            chunks, tts_events = await _do_tts()
+
+        tts_chunks = chunks
+        for tts_ev in tts_events:
+            await _send_json(ws, tts_ev.model_dump_json())
+    except asyncio.TimeoutError:
+        tts_error = f"tts_timeout_{settings.tts_timeout_s}s"
+        logger.warning(
+            "tts.timeout",
+            call_sid=ev.callSid,
+            stream_sid=ev.streamSid,
+            turn_id=turn_id,
+            timeout_s=settings.tts_timeout_s,
+        )
+        await _send_error(ws, "tts_error", tts_error)
+    except Exception as exc:
+        tts_error = str(exc)
+        logger.warning(
+            "tts.error",
+            call_sid=ev.callSid,
+            stream_sid=ev.streamSid,
+            turn_id=turn_id,
+            error=tts_error,
+        )
+        await _send_error(ws, "tts_error", tts_error)
+
+    logger.info(
+        "tts.synthesized",
+        call_sid=ev.callSid,
+        stream_sid=ev.streamSid,
+        chunks=tts_chunks,
+        tts_error=tts_error,
+        turn_id=turn_id,
+    )
 
     logger.info(
         "bridge.session_stopped",
@@ -157,6 +272,10 @@ async def _handle_stop(ws: WebSocket, ev: StopEvent, session: SessionState) -> N
         stream_sid=ev.streamSid,
         audio_bytes=session.audio_bytes_received,
         audio_frames=session.audio_frames,
+        turn_id=turn_id,
+        intent=answer.intent,
+        grounded=answer.grounded,
+        tts_chunks=tts_chunks,
     )
     await _send_ack(ws, AckResponse(ack="stop", callSid=ev.callSid, streamSid=ev.streamSid))
 
@@ -208,4 +327,6 @@ async def telephony_ws(
             call_sid=callSid,
             stream_sid=streamSid,
             audio_bytes=session.audio_bytes_received if session else 0,
+            audio_frames=session.audio_frames if session else 0,
+            last_turn_id=session.last_turn_id if session else "",
         )

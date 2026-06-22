@@ -17,6 +17,8 @@ export interface TtsSynthesizeResponse {
   mimeType: string
   audioBase64: string
   reason: string
+  /** Machine-readable failure code, e.g. cartesia_timeout, cartesia_key_missing. */
+  errorCode: string
   fallback: string
 }
 
@@ -32,7 +34,7 @@ export async function synthesizeSpeech(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
-      signal: AbortSignal.timeout(25_000),
+      signal: AbortSignal.timeout(60_000),
     })
     if (!res.ok) return null
     const data = await res.json() as TtsSynthesizeResponse
@@ -56,7 +58,7 @@ export async function synthesizeGeminiSpeech(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(60_000),
     })
     if (!res.ok) return null
     const data = await res.json() as TtsSynthesizeResponse
