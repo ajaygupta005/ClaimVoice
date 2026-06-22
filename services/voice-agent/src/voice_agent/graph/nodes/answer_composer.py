@@ -34,6 +34,7 @@ class ComposerInput:
     tool_args: dict[str, Any]
     tool_result: str
     member_context: str = ""
+    tool_facts: list[str] = field(default_factory=list)
     rag_chunks: list[dict[str, Any]] = field(default_factory=list)  # Component 69
 
 
@@ -171,8 +172,10 @@ Your job is ONLY to turn structured tool facts and supporting SBC document excer
 conversational phone answer.
 
 Rules:
-- Use ONLY the facts provided in tool_result and sbc_chunks. Do not invent coverage, cost, drug, or provider facts.
-- Structured tool_result is the primary source of truth; sbc_chunks are supporting evidence only.
+- Use ONLY the facts provided in tool_result, tool_facts, and sbc_chunks. Do not invent coverage,
+  cost, drug, or provider facts.
+- Structured tool_result and tool_facts are the primary source of truth (tool_facts may include
+  exact figures and Summary-of-Benefits passages); sbc_chunks are supporting evidence only.
 - If sbc_chunks is empty, do not mention citations, documents, or plan text.
 - If the tool_result does not contain enough information to answer, set needs_escalation to true.
 - Keep the answer brief and phone-friendly (1–3 sentences).
@@ -228,8 +231,9 @@ class ClaudeComposer(AnswerComposer):
             "intent": inp.intent,
             "tool_name": inp.tool_name,
             "tool_result": inp.tool_result,
-            "member_context": inp.member_context or "Silver PPO plan member",
+            "tool_facts": inp.tool_facts,
             "sbc_chunks": sbc_chunks,
+            "member_context": inp.member_context or "the member's plan",
         }, ensure_ascii=False)
 
         try:

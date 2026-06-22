@@ -146,7 +146,12 @@ def fact_check(
             r = httpx.post(
                 f"{base_url}/api/v1/fact_check",
                 json={"answer": answer, "facts": facts, "ragFacts": rag_texts},
-                timeout=5.0,
+                # The Claude judge (~5s warm, more on cold start) is the only check
+                # that catches semantic mismatches (e.g. an in-network figure applied
+                # to an out-of-network question). On timeout we fall back to the
+                # in-process matcher, which can't see that — so allow real headroom
+                # to keep the safety guard on the LLM path.
+                timeout=12.0,
             )
             r.raise_for_status()
             d = r.json()

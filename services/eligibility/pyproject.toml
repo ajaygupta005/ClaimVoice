@@ -17,6 +17,7 @@ dependencies = [
   "opentelemetry-sdk>=1.29",
   "prometheus-client>=0.21",
   "voyageai>=0.3.0",
+  "openai>=1.55",
 ]
 
 [project.optional-dependencies]

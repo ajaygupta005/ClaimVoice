@@ -16,6 +16,7 @@ def compose_answer(state: AgentState) -> AgentState:
         tool_name=state.get("tool_name", ""),
         tool_args=state.get("tool_args", {}),
         tool_result=state.get("tool_result", ""),
+        tool_facts=state.get("tool_facts", []),
         member_context="",
         rag_chunks=state.get("rag_chunks") or [],  # Component 69: SBC evidence for Claude
     )

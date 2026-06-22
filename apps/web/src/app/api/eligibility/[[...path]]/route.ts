@@ -10,7 +10,8 @@ const ELIGIBILITY_URL = process.env.ELIGIBILITY_HTTP_URL ?? 'http://localhost:80
 
 async function proxy(req: NextRequest, params: { path?: string[] }): Promise<NextResponse> {
   const sub = params.path ? `/${params.path.join('/')}` : ''
-  const upstream = `${ELIGIBILITY_URL}/api/v1${sub}`
+  // Forward the query string — endpoints like /coverage?memberId=&service= need it.
+  const upstream = `${ELIGIBILITY_URL}/api/v1${sub}${req.nextUrl.search}`
 
   try {
     const headers = new Headers()

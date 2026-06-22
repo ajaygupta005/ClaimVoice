@@ -18,8 +18,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      // 10s timeout via AbortSignal (Node 18+)
-      signal: AbortSignal.timeout(10_000),
+      // 30s timeout — Claude compose + fact-check + SBC RAG can take ~6-12s
+      signal: AbortSignal.timeout(30_000),
     })
 
     const data: unknown = await res.json()

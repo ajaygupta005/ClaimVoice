@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 # Make the ingest script importable without installing it as a package
-sys.path.insert(0, str(Path(__file__).parents[5] / "data" / "ingest"))
+sys.path.insert(0, str(Path(__file__).parents[4] / "data" / "ingest"))
 
 from sbc_embed_ingest import chunk_text  # noqa: E402
 
@@ -18,16 +18,18 @@ from sbc_embed_ingest import chunk_text  # noqa: E402
 # ---------------------------------------------------------------------------
 
 def test_chunk_text_basic() -> None:
-    """800-word input with chunk_size=400, overlap=50 → 2 chunks."""
+    """800-word input with chunk_size=400, overlap=50 (step=350) → 3 windows."""
     text = " ".join(f"word{i}" for i in range(800))
     chunks = chunk_text(text, chunk_size=400, overlap=50)
-    assert len(chunks) == 2
+    assert len(chunks) == 3
     # First chunk: words 0–399
     assert chunks[0].split()[0] == "word0"
     assert chunks[0].split()[-1] == "word399"
-    # Second chunk: words 350–799
+    # Second chunk: words 350–749
     assert chunks[1].split()[0] == "word350"
-    assert chunks[1].split()[-1] == "word799"
+    assert chunks[1].split()[-1] == "word749"
+    # Last chunk ends at the final word
+    assert chunks[-1].split()[-1] == "word799"
 
 
 def test_chunk_text_overlap_shared_words() -> None:

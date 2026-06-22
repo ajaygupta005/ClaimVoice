@@ -102,7 +102,7 @@ def near_candidates(session: Session, plan_id: Optional[Any] = None) -> list[dic
     """
     rows = session.execute(
         text(f"""
-            SELECT {_SELECT_COLS}, location,
+            SELECT {_SELECT_COLS}, ST_AsText(location::geometry) AS location,
                    EXISTS(
                        SELECT 1 FROM in_network i
                        WHERE i.provider_npi = providers.npi

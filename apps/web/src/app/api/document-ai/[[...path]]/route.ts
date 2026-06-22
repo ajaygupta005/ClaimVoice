@@ -10,7 +10,8 @@ const DOCUMENT_AI_URL = process.env.DOCUMENT_AI_HTTP_URL ?? 'http://localhost:80
 
 async function proxy(req: NextRequest, params: { path?: string[] }): Promise<NextResponse> {
   const sub = params.path ? `/${params.path.join('/')}` : ''
-  const upstream = `${DOCUMENT_AI_URL}/api/v1${sub}`
+  // Forward the query string for consistency with the other service proxies.
+  const upstream = `${DOCUMENT_AI_URL}/api/v1${sub}${req.nextUrl.search}`
 
   try {
     const res = await fetch(upstream, {

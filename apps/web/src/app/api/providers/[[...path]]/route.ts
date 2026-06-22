@@ -7,7 +7,8 @@ const PROVIDERS_URL = process.env.PROVIDERS_HTTP_URL ?? 'http://localhost:8003'
 
 async function proxy(req: NextRequest, params: { path?: string[] }): Promise<NextResponse> {
   const sub = params.path ? `/${params.path.join('/')}` : ''
-  const upstream = `${PROVIDERS_URL}/api/v1${sub}`
+  // Forward the query string — search/near rely on specialty/lat/lng/limit params.
+  const upstream = `${PROVIDERS_URL}/api/v1${sub}${req.nextUrl.search}`
 
   try {
     const headers = new Headers()

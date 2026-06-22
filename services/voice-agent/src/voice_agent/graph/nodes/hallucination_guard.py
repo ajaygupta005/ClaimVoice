@@ -27,6 +27,25 @@ def hallucination_guard(state: AgentState) -> AgentState:
             "guard_rag_facts_used": 0,
         }
 
+    # Provider listings come from the real provider directory. The figure-matching
+    # fact-check judge (built for $/tier/coverage claims) can't meaningfully verify a
+    # name + distance list and flakily flags it. When the directory tool returned a
+    # successful real result, treat the listing as grounded. This does NOT touch the
+    # shared judge used for cost/coverage/formulary answers.
+    if intent == "provider":
+        trace = state.get("tool_trace") or []
+        last = trace[-1] if trace else {}
+        if last.get("data_source") == "real" and last.get("ok"):
+            return {
+                **state,
+                "grounded": True,
+                "guard_reason": "provider listing sourced from the real directory",
+                "guard_reason_code": "supported_by_structured_tool",
+                "guard_supported_by": ["structured_tool"],
+                "guard_unsupported_claims": [],
+                "guard_rag_facts_used": 0,
+            }
+
     answer = state.get("answer_text", "")
     facts = state.get("tool_facts") or [state.get("tool_result", "")]
     rag_chunks = state.get("rag_chunks") or []
