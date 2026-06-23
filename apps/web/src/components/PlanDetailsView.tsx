@@ -105,18 +105,23 @@ function LoadingSkeleton() {
 
 // ── Deductible progress bar ───────────────────────────────────────────────────
 
-function DeductibleBar({ usedCents, maxCents }: { usedCents: number; maxCents: number }) {
-  const pct = maxCents > 0 ? Math.min(100, Math.round((usedCents / maxCents) * 100)) : 0
+function DeductibleBar({ usedCents, maxCents }: { usedCents: number; maxCents: number | null }) {
+  // Only show a percentage when we actually have the plan's annual max. Using the
+  // YTD-used value as the max (the old fallback) made every bar read "100% reached".
+  const max = maxCents != null && maxCents > 0 ? maxCents : null
+  const pct = max != null ? Math.min(100, Math.round((usedCents / max) * 100)) : 0
   return (
     <div className="mt-2 space-y-1">
       <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
         <span>{centsToDisplay(usedCents)} used</span>
-        <span>{centsToDisplay(maxCents)} max</span>
+        <span>{max != null ? `${centsToDisplay(max)} max` : 'limit not on file'}</span>
       </div>
       <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
         <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${pct}%` }} />
       </div>
-      <p className="text-xs text-slate-400 dark:text-slate-500">{pct}% of limit reached</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        {max != null ? `${pct}% of limit reached` : 'Annual limit unavailable'}
+      </p>
     </div>
   )
 }
@@ -259,8 +264,17 @@ export default function PlanDetailsView() {
   const { summary, benefits, isDemo } = data
   const { member, plan } = summary
 
-  // Benefits split by network type for the highlights table
-  const inNetworkBenefits = benefits.benefits.filter(b => b.networkType === 'in_network' || b.networkType == null)
+  // Benefits split by network type for the highlights table.
+  // The backend returns display-cased values ("In Network"), so normalise before
+  // comparing — a strict 'in_network' check matched nothing, which silently emptied
+  // this list (collapsing the deductible/OOP max to the YTD-used value → a false
+  // "100% of limit reached", and hiding the benefits table). Treat null/empty as in-network.
+  const normalizeNetwork = (s: string | null | undefined) =>
+    (s ?? '').toLowerCase().replace(/[\s-]+/g, '_')
+  const inNetworkBenefits = benefits.benefits.filter(b => {
+    const n = normalizeNetwork(b.networkType)
+    return n === '' || n === 'in_network'
+  })
 
   // Prior auth services
   const priorAuthBenefits = benefits.benefits.filter(b => b.requiresPriorAuth)
@@ -319,7 +333,7 @@ export default function PlanDetailsView() {
               usedCents={member.deductibleYtdCents}
               maxCents={
                 inNetworkBenefits.find(b => b.individualDeductibleCents != null)?.individualDeductibleCents
-                ?? member.deductibleYtdCents
+                ?? null
               }
             />
           </div>
@@ -329,7 +343,7 @@ export default function PlanDetailsView() {
               usedCents={member.oopYtdCents}
               maxCents={
                 inNetworkBenefits.find(b => b.outOfPocketMaxCents != null)?.outOfPocketMaxCents
-                ?? member.oopYtdCents
+                ?? null
               }
             />
           </div>
