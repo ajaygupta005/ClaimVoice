@@ -5,7 +5,10 @@ const VOICE_AGENT_URL = process.env.VOICE_AGENT_HTTP_URL ?? 'http://localhost:80
 export async function GET(): Promise<NextResponse> {
   try {
     const res = await fetch(`${VOICE_AGENT_URL}/api/v1/runtime/status`, {
-      signal: AbortSignal.timeout(4_000),
+      // Cold backend: first call runs Python imports + the RAG chunk-count DB
+      // query, which can exceed a few seconds. Give it room so we don't fall
+      // back to "browser STT / RAG unavailable" while the service warms up.
+      signal: AbortSignal.timeout(9_000),
     })
     const data: unknown = await res.json()
     if (!res.ok) {

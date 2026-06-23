@@ -423,9 +423,51 @@ export default function VoiceAssistantUI() {
 
   // ── Voice runtime selector (Component 50) ───────────────────────────────────
   const [runtimeStatus, setRuntimeStatus] = useState<VoiceRuntimeStatus | null>(null)
+  // Frozen-once STT engine decision — the single source of truth for which engine
+  // every turn uses. 'unresolved' until the runtime poll first lands a real
+  // (non-fallback) runtime; then locked for the rest of the session so the engine
+  // can never flip mid-session on async poll timing (the root cause of the erratic
+  // browser-vs-Gemini switching). Imperative handlers read this ref DIRECTLY at
+  // click/run time; sttEngineResolved drives re-render + the mic gate.
+  const sttEngineRef = useRef<'unresolved' | 'gemini' | 'browser'>('unresolved')
+  const [sttEngineResolved, setSttEngineResolved] = useState(false)
 
   useEffect(() => {
-    fetchRuntimeStatus().then(setRuntimeStatus).catch(() => {/* swallowed — fetchRuntimeStatus never throws */})
+    // Poll the runtime status until it resolves to something real. A cold
+    // backend can return 'fallback' on the first call (imports + RAG count
+    // exceed the timeout); without this, the page would stay stuck on
+    // "browser STT / RAG unavailable" until a manual reload. Self-heal instead.
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let attempts = 0
+    const MAX_ATTEMPTS = 6
+    const RETRY_MS = 3_000
+
+    const poll = (): void => {
+      fetchRuntimeStatus().then((status) => {
+        if (cancelled) return
+        setRuntimeStatus(status)
+        attempts += 1
+        // Freeze the STT engine the FIRST time we get a real (non-fallback)
+        // runtime, or when retries are exhausted (a cold backend that stays
+        // 'fallback' → browser). A cold backend may still flip 'fallback' → real,
+        // so keep polling until then; the engine is only chosen once.
+        if (sttEngineRef.current === 'unresolved' &&
+            (status.runtime !== 'fallback' || attempts >= MAX_ATTEMPTS)) {
+          sttEngineRef.current =
+            (status.runtime === 'gemini-live-configured' && ENABLE_GEMINI_STT)
+              ? 'gemini'
+              : 'browser'
+          setSttEngineResolved(true)
+        }
+        if (status.runtime === 'fallback' && attempts < MAX_ATTEMPTS) {
+          timer = setTimeout(poll, RETRY_MS)
+        }
+      }).catch(() => {/* swallowed — fetchRuntimeStatus never throws */})
+    }
+
+    poll()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [])
 
   // ── Browser voice discovery ──────────────────────────────────────────────────
@@ -531,14 +573,21 @@ export default function VoiceAssistantUI() {
 
   // ── Gemini mic path ──────────────────────────────────────────────────────────
 
-  function stopGeminiMic() {
-    geminiClientRef.current?.stop()
+  // Returns true if stopping promoted a final transcript (a turn was kicked off),
+  // so the caller can avoid forcing status back to 'ready' over the live pipeline.
+  function stopGeminiMic(): boolean {
+    // Null the ref first so the synchronous onFinal → runPipeline → newController
+    // path doesn't try to tear this client down again mid-stop; stop() self-cleans.
+    const client = geminiClientRef.current
     geminiClientRef.current = null
+    return client?.stop() ?? false
   }
 
   async function startGeminiMic() {
-    // Tear down any running session first
-    stopGeminiMic()
+    // Tear down any running session first — cleanup() (not stop()) so a stale
+    // partial from an abandoned session isn't promoted into a spurious turn.
+    geminiClientRef.current?.cleanup()
+    geminiClientRef.current = null
     controllerRef.current?.cleanup('gemini_start')
 
     setStatus('listening')
@@ -593,7 +642,11 @@ export default function VoiceAssistantUI() {
       }
 
       console.warn('[ClaimVoice:GeminiLive] start failed, falling back to browser STT:', err)
-      // Fall back to browser STT if available
+      // Permanently downgrade this session to browser STT so stop/typed/example
+      // taps target the controller, not the now-dead Gemini client. handleMicClick
+      // reads this ref directly, so it takes effect on the very next tap.
+      sttEngineRef.current = 'browser'
+      setSttEngineResolved(true)
       const ctrl = newController()
       const srOk = ctrl.startSTT()
       if (!srOk) {
@@ -605,6 +658,15 @@ export default function VoiceAssistantUI() {
 
   function newController(): VoiceTurnController {
     controllerRef.current?.cleanup('new_turn')
+    // Also tear down any live Gemini session so two engines never stream at once
+    // (e.g. user starts the Gemini mic, then types or picks an example instead of
+    // stopping). Use cleanup(), NOT stop(): stop() promotes the last partial to a
+    // final and would fire a spurious second pipeline racing this new turn —
+    // cleanup() just closes the socket and discards the abandoned utterance.
+    if (geminiClientRef.current) {
+      geminiClientRef.current.cleanup()
+      geminiClientRef.current = null
+    }
     // ctrl reference captured so the error handler can call cleanup on itself
     let ctrl: VoiceTurnController
     ctrl = new VoiceTurnController(
@@ -658,7 +720,7 @@ export default function VoiceAssistantUI() {
         setRagSource(backendResult.rag?.ragSource || undefined)
         // Relabel backends: rename Claude → Claude answer, STT → runtime-aware label
         const claudeStatus = backendResult.composer_mode === 'claude' ? 'connected' : 'demo'
-        const sttLabel = useGeminiStt ? 'STT: Gemini Live' : 'STT: Browser'
+        const sttLabel = sttEngineRef.current === 'gemini' ? 'STT: Gemini Live' : 'STT: Browser'
         setBackends(backendResult.backends.map(b => {
           if (b.label === 'Claude') return { ...b, label: 'Claude answer', status: claudeStatus as LedStatus }
           if (b.label === 'STT')   return { ...b, label: sttLabel }
@@ -724,8 +786,14 @@ export default function VoiceAssistantUI() {
       cvDebug('skipping Gemini Live TTS; exact-answer speech requires a dedicated TTS provider')
     }
 
-    // 2. Dedicated TTS provider (Cartesia / Google / system)
-    const ttsData = await synthesizeSpeech({ text: answerText })
+    // 2. Dedicated TTS provider (Cartesia / Google / system).
+    // Retry once on a null result — Cartesia can transiently rate-limit or time
+    // out, and a single hiccup shouldn't drop the demo to the robotic browser
+    // voice. Only fall back to the browser after both attempts fail.
+    let ttsData = await synthesizeSpeech({ text: answerText })
+    if (!ttsData && !isStale()) {
+      ttsData = await synthesizeSpeech({ text: answerText })
+    }
     if (isStale()) return
 
     if (ttsData?.audioBase64) {
@@ -754,8 +822,12 @@ export default function VoiceAssistantUI() {
     }
   }
 
-  const isGeminiRuntime = runtimeStatus?.runtime === 'gemini-live-configured'
-  const useGeminiStt = isGeminiRuntime && ENABLE_GEMINI_STT
+  // Engine is the FROZEN per-session decision (read the ref), not the live polled
+  // value — so STT, the TTS gate, and the label all key off ONE stable source and
+  // can never disagree. This render-scope const feeds labels/JSX and the TTS gate
+  // and refreshes when setSttEngineResolved triggers a re-render; imperative
+  // handlers read the ref directly.
+  const isGeminiRuntime = sttEngineRef.current === 'gemini'
   const isCartesiaTts = runtimeStatus?.tts_provider === 'cartesia'
   const displayVoiceLabel = isCartesiaTts
     ? `Voice: ${runtimeStatus?.tts_voice_name ?? 'Cartesia Skylar'}`
@@ -763,11 +835,19 @@ export default function VoiceAssistantUI() {
 
   const handleMicClick = useCallback(() => {
     if (status === 'thinking' || status === 'finalizing_stt') return
+    // Don't act until the engine is frozen — otherwise the browser-vs-Gemini
+    // choice would depend on async poll timing (the erratic-switching root cause).
+    // The mic button is disabled in this window too.
+    if (sttEngineRef.current === 'unresolved') return
     primeSpeechSynthesis('mic_click')
+
+    // Read the frozen engine ONCE per tap (live from the ref). A start tap and
+    // its stop tap therefore always target the same engine — no asymmetry.
+    const useGemini = sttEngineRef.current === 'gemini'
 
     if (status === 'speaking' || status === 'preparing_tts') {
       // Interrupt TTS and start a new turn
-      if (useGeminiStt) {
+      if (useGemini) {
         void startGeminiMic()
       } else {
         const ctrl = newController()
@@ -782,9 +862,12 @@ export default function VoiceAssistantUI() {
 
     if (status === 'listening') {
       // Stop whichever input path is active
-      if (useGeminiStt) {
-        stopGeminiMic()
-        setStatus('ready')
+      if (useGemini) {
+        // If something was said, stop() promotes a final → runPipeline already
+        // drove status into the pipeline; don't stomp it back to 'ready'. Only
+        // reset when nothing was transcribed.
+        const started = stopGeminiMic()
+        if (!started) setStatus('ready')
       } else {
         controllerRef.current?.stopSTT()
       }
@@ -792,7 +875,7 @@ export default function VoiceAssistantUI() {
     }
 
     // ready or error_recoverable → start new turn
-    if (useGeminiStt) {
+    if (useGemini) {
       void startGeminiMic()
     } else {
       const ctrl = newController()
@@ -802,7 +885,7 @@ export default function VoiceAssistantUI() {
         ctrl.cleanup('browser_stt_unavailable')
       }
     }
-  }, [primeSpeechSynthesis, status, useGeminiStt]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [primeSpeechSynthesis, status, sttEngineResolved]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleReset() {
     setInterimText('')
@@ -830,6 +913,7 @@ export default function VoiceAssistantUI() {
 
   const micLabel = status === 'listening' ? 'Stop recording' : 'Push to talk'
   const micStatusText =
+    !sttEngineResolved             ? 'Connecting to voice runtime…'     :
     status === 'listening'         ? 'Listening — tap to stop'          :
     status === 'finalizing_stt'    ? 'Finalizing speech…'               :
     status === 'thinking'          ? 'Checking plan…'                   :
@@ -933,7 +1017,7 @@ export default function VoiceAssistantUI() {
             <div className="px-4 py-4 flex items-center gap-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
               <button
                 onClick={handleMicClick}
-                disabled={status === 'thinking' || status === 'finalizing_stt'}
+                disabled={!sttEngineResolved || status === 'thinking' || status === 'finalizing_stt'}
                 aria-label={micLabel}
                 className={`shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 ${
                   status === 'listening' || status === 'finalizing_stt'

@@ -78,8 +78,10 @@ export interface GeminiLiveClientOptions {
 export const DEFAULT_MIC_PERMISSION_TIMEOUT_MS = 8_000
 /** Default: how long after start() before we expect at least one partial transcript. */
 export const DEFAULT_NO_TRANSCRIPT_TIMEOUT_MS = 20_000
-/** WebSocket connect timeout. */
-export const WS_CONNECT_TIMEOUT_MS = 5_000
+/** WebSocket connect timeout. Generous so a cold backend (importing the
+ *  google-genai SDK + opening the first Gemini Live session) doesn't trip the
+ *  browser-STT fallback and silently downgrade the whole session. */
+export const WS_CONNECT_TIMEOUT_MS = 10_000
 
 // ── Target sample rate sent to Gemini Live ───────────────────────────────────
 
@@ -111,6 +113,8 @@ export class GeminiLiveClient {
   private stream: MediaStream | null = null
   private cleanedUp = false
   private noTranscriptTimer: ReturnType<typeof setTimeout> | null = null
+  private lastPartial = ''
+  private finalFired = false
 
   constructor(opts: GeminiLiveClientOptions) {
     this.opts = {
@@ -166,10 +170,29 @@ export class GeminiLiveClient {
     }, this.opts.noTranscriptTimeoutMs)
   }
 
-  /** Signal end of speech to the server, then release resources. */
-  stop(): void {
-    this._sendStop()
-    this._releaseAudio()
+  /**
+   * Signal end of speech, promote the last partial to a final transcript, and
+   * FULLY tear down. Returns true if a final was promoted (a turn was started),
+   * false if there was nothing to transcribe.
+   *
+   * stop() is a superset of cleanup(): it must leave no armed watchdog or open
+   * socket behind, otherwise a late no-transcript/error/close event from this
+   * abandoned session would stomp a later turn's UI state.
+   */
+  stop(): boolean {
+    // The Live API often doesn't flag input_transcription as "finished", so the
+    // server may never emit a final transcript. Promote the last partial to a
+    // final BEFORE teardown so the agent pipeline actually runs.
+    let promoted = false
+    if (!this.finalFired && this.lastPartial.trim()) {
+      this.finalFired = true
+      promoted = true
+      this.opts.onFinal(this.lastPartial)
+    }
+    // Full teardown: clears the no-transcript timer, sends stop, releases audio,
+    // closes the socket, sets cleanedUp (all idempotent).
+    this.cleanup()
+    return promoted
   }
 
   /** Idempotent cleanup — safe to call multiple times. */
@@ -253,12 +276,16 @@ export class GeminiLiveClient {
       case 'transcript.partial':
         this._clearNoTranscriptTimer()  // we have speech — cancel the no-speech timeout
         cvDebug('transcript partial', { len: data.text.length })
+        this.lastPartial = data.text
         this.opts.onPartial(data.text)
         break
       case 'transcript.final':
         this._clearNoTranscriptTimer()
         cvDebug('transcript final', { len: data.text.length, durationMs: data.duration_ms })
-        this.opts.onFinal(data.text)
+        if (!this.finalFired) {
+          this.finalFired = true
+          this.opts.onFinal(data.text)
+        }
         break
       case 'session.closed':
         cvDebug('session closed', { reason: data.reason })

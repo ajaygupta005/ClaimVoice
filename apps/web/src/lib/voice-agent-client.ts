@@ -157,7 +157,9 @@ export interface VoiceRuntimeStatus {
 export async function fetchRuntimeStatus(): Promise<VoiceRuntimeStatus> {
   try {
     const res = await fetch('/api/voice-agent/runtime', {
-      signal: AbortSignal.timeout(4_000),
+      // Longer than the proxy's own upstream timeout so we don't abort a
+      // near-complete call while the backend is warming up (cold-start RAG count).
+      signal: AbortSignal.timeout(12_000),
     })
     if (!res.ok) throw new Error(`status ${res.status}`)
     return await res.json() as VoiceRuntimeStatus
@@ -202,7 +204,7 @@ export async function sendVoiceAgentQuestion(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, source }),
-      signal: signal ?? AbortSignal.timeout(12_000),
+      signal: signal ?? AbortSignal.timeout(35_000),
     })
 
     if (!res.ok) {
