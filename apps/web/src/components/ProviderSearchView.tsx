@@ -239,15 +239,26 @@ export default function ProviderSearchView() {
     setSearchState('loading')
     setErrorMsg('')
 
-    const apiResult = await providersSearch(
-      {
-        specialty: specialty !== 'All specialties' ? specialty : undefined,
-        state: stateFilter || undefined,
-        acceptingNewPatients: acceptingOnly || undefined,
-        limit: 50,
-      },
-      ctrl.signal,
-    )
+    let apiResult: Awaited<ReturnType<typeof providersSearch>>
+    try {
+      apiResult = await providersSearch(
+        {
+          specialty: specialty !== 'All specialties' ? specialty : undefined,
+          state: stateFilter || undefined,
+          acceptingNewPatients: acceptingOnly || undefined,
+          limit: 50,
+        },
+        ctrl.signal,
+      )
+    } catch (err) {
+      // apiFetch re-throws AbortError on cancellation (StrictMode remount in dev,
+      // a superseding search, or navigating away). That's expected — exit quietly
+      // so it never surfaces as an unhandled rejection / full-screen dev overlay.
+      if (err instanceof Error && err.name === 'AbortError') return
+      setSearchState('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Search failed.')
+      return
+    }
 
     if (ctrl.signal.aborted) return
 

@@ -175,10 +175,22 @@ export default function CardUploadFlow() {
     setStage('extracting')
 
     // Run OCR and classification in parallel
-    const [ocrResult, classifyResult] = await Promise.all([
-      documentAiOcrCard(file, ac.signal),
-      documentAiClassifyCard(file, ac.signal),
-    ])
+    let ocrResult: Awaited<ReturnType<typeof documentAiOcrCard>>
+    let classifyResult: Awaited<ReturnType<typeof documentAiClassifyCard>>
+    try {
+      ;[ocrResult, classifyResult] = await Promise.all([
+        documentAiOcrCard(file, ac.signal),
+        documentAiClassifyCard(file, ac.signal),
+      ])
+    } catch (err) {
+      // apiFetch re-throws AbortError on cancellation (reset / new upload mid-
+      // extraction). Expected — exit quietly so it doesn't surface as a runtime
+      // error overlay; otherwise show the failure.
+      if (ac.signal.aborted || (err instanceof Error && err.name === 'AbortError')) return
+      setErrorMessage(err instanceof Error ? err.message : 'Extraction failed')
+      setStage('error')
+      return
+    }
 
     if (ac.signal.aborted) return
 
