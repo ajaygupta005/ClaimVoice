@@ -24,7 +24,7 @@ Idempotent: safe to re-run. Each section is gated on its own audit_source rows
 
 Usage:
     python data/ingest/seed_dev.py
-    DATABASE_URL=postgresql://user:pass@localhost:5432/claimvoice python data/ingest/seed_dev.py
+    DATABASE_URL=postgresql://user:pass@localhost:5433/claimvoice python data/ingest/seed_dev.py
 """
 
 from __future__ import annotations

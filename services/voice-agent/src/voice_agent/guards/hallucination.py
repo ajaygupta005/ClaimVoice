@@ -163,6 +163,17 @@ def fact_check(
             supported_by = d.get("supportedBy") or (["structured_tool"] if grounded else [])
             unsupported_claims = d.get("unsupportedClaims") or []
             rag_facts_used = int(d.get("ragFactsUsed", len(rag_texts) if rag_texts else 0))
+            if not grounded and not unsupported_claims:
+                local = check_in_process(answer, facts, rag_chunks)
+                if local.grounded:
+                    return GuardResult(
+                        grounded=True,
+                        reason="structured facts and SBC RAG support all checked claims",
+                        reason_code=local.reason_code,
+                        supported_by=local.supported_by,
+                        unsupported_claims=[],
+                        rag_facts_used=local.rag_facts_used,
+                    )
             if grounded:
                 reason_code = d.get("guardReasonCode") or (
                     "supported_by_sbc_rag"

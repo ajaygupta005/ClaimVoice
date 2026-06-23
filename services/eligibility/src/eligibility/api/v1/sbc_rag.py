@@ -2,20 +2,34 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 
-from eligibility.core.config import settings
+from eligibility.lib.embeddings import EmbeddingProviderUnavailable
 from eligibility.schemas.sbc_rag import SBCRagRequest, SBCRagResponse
 from eligibility.services.sbc_rag import retrieve_chunks
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/sbc/retrieve", response_model=SBCRagResponse)
 def sbc_retrieve(request: SBCRagRequest) -> SBCRagResponse:
-    if not settings.voyage_api_key:
+    try:
+        return retrieve_chunks(request.planId, request.query, request.topK)
+    except EmbeddingProviderUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail="VOYAGE_API_KEY is not configured — cannot embed query",
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        logger.warning(
+            "sbc_rag.retrieve_failed",
+            exc_info=exc,
+            extra={"plan_id": request.planId, "top_k": request.topK},
         )
-    return retrieve_chunks(request.planId, request.query, request.topK)
+        raise HTTPException(
+            status_code=502,
+            detail="SBC RAG retrieval failed",
+        ) from exc

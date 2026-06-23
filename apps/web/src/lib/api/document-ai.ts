@@ -10,7 +10,7 @@
  * No image bytes ever appear in UI state or logs — only extracted text fields.
  */
 
-import { apiFetch, demoResult } from './client'
+import { apiFetch } from './client'
 import type { ApiResult } from './types'
 
 // ── Request / response shapes (match document-ai service API v1) ──────────────
@@ -131,29 +131,6 @@ export function normalizeClassifyResult(raw: CardClassifyResult): NormalizedPayo
   }
 }
 
-// ── Demo fallback data ────────────────────────────────────────────────────────
-
-const DEMO_OCR: CardOcrResult = {
-  card_id: 'demo',
-  fields: [
-    { field_name: 'member_id',    value: 'DEMO-001',             confidence: 0.98, bbox: null },
-    { field_name: 'member_name',  value: 'Demo Member',          confidence: 0.96, bbox: null },
-    { field_name: 'group_number', value: 'GRP-DEMO',             confidence: 0.91, bbox: null },
-    { field_name: 'plan_name',    value: 'Silver PPO 4500 (demo)', confidence: 0.94, bbox: null },
-    { field_name: 'payor_name',   value: 'Demo Health Plan',     confidence: 0.88, bbox: null },
-    { field_name: 'rx_bin',       value: '000000',               confidence: 0.82, bbox: null },
-    { field_name: 'rx_pcn',       value: 'DEMO',                 confidence: 0.85, bbox: null },
-  ],
-  low_confidence_fields: ['rx_bin', 'payor_name'],
-  model_version: 'demo',
-}
-
-const DEMO_CLASSIFY: CardClassifyResult = {
-  payor_label: 'Other',
-  confidence: 0,
-  source_model: 'demo',
-}
-
 // ── Image helper ──────────────────────────────────────────────────────────────
 
 /** Read a File/Blob as a base64 string (no data-URI prefix). */
@@ -185,7 +162,17 @@ export async function documentAiOcrCard(
   try {
     image_base64 = await fileToBase64(imageFile)
   } catch {
-    return demoResult('document-ai', DEMO_OCR)
+    return {
+      ok: false,
+      data: null,
+      statusCode: 0,
+      source: 'real',
+      service: 'document-ai',
+      isDemo: false,
+      isUnavailable: false,
+      error: 'Could not read the uploaded image.',
+      code: 'file_read_error',
+    }
   }
 
   const card_id = `web-${Date.now()}`
@@ -196,9 +183,6 @@ export async function documentAiOcrCard(
     signal,
     timeoutMs: 30_000,  // OCR can be slow
   })
-  if (!result.ok && result.isUnavailable) {
-    return demoResult('document-ai', DEMO_OCR)
-  }
   return result
 }
 
@@ -213,7 +197,17 @@ export async function documentAiClassifyCard(
   try {
     image_base64 = await fileToBase64(imageFile)
   } catch {
-    return demoResult('document-ai', DEMO_CLASSIFY)
+    return {
+      ok: false,
+      data: null,
+      statusCode: 0,
+      source: 'real',
+      service: 'document-ai',
+      isDemo: false,
+      isUnavailable: false,
+      error: 'Could not read the uploaded image.',
+      code: 'file_read_error',
+    }
   }
 
   const result = await apiFetch<CardClassifyResult>('document-ai', '/payor_classify', {
@@ -223,8 +217,5 @@ export async function documentAiClassifyCard(
     signal,
     timeoutMs: 15_000,
   })
-  if (!result.ok && result.isUnavailable) {
-    return demoResult('document-ai', DEMO_CLASSIFY)
-  }
   return result
 }

@@ -138,7 +138,7 @@ describe('documentAiOcrCard — network responses', () => {
     }
   })
 
-  it('returns demo fallback on 503 (model not loaded)', async () => {
+  it('returns unavailable on 503 (model not loaded)', async () => {
     mockFetch(503, { detail: 'Card OCR model is not loaded.' }, false)
 
     const { documentAiOcrCard } = await import('../api/document-ai')
@@ -151,10 +151,11 @@ describe('documentAiOcrCard — network responses', () => {
     })
 
     const result = await documentAiOcrCard(fakeFile)
-    expect(result.ok).toBe(true)
-    expect(result.isDemo).toBe(true)
-    if (result.ok) {
-      expect(result.data.card_id).toBe('demo')
+    expect(result.ok).toBe(false)
+    expect(result.isUnavailable).toBe(true)
+    if (!result.ok) {
+      expect(result.statusCode).toBe(503)
+      expect(result.code).toBe('service_unavailable')
     }
   })
 
@@ -178,7 +179,7 @@ describe('documentAiOcrCard — network responses', () => {
     }
   })
 
-  it('returns demo fallback when FileReader fails', async () => {
+  it('returns file_read_error when FileReader fails', async () => {
     const { documentAiOcrCard } = await import('../api/document-ai')
     const fakeFile = new Blob(['fake'], { type: 'image/jpeg' }) as unknown as File
 
@@ -190,15 +191,18 @@ describe('documentAiOcrCard — network responses', () => {
     })
 
     const result = await documentAiOcrCard(fakeFile)
-    expect(result.ok).toBe(true)
-    expect(result.isDemo).toBe(true)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.code).toBe('file_read_error')
+      expect(result.isUnavailable).toBe(false)
+    }
   })
 })
 
 // ── documentAiClassifyCard ────────────────────────────────────────────────────
 
 describe('documentAiClassifyCard — network responses', () => {
-  it('returns demo fallback on network error', async () => {
+  it('returns unavailable on network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
 
     const { documentAiClassifyCard } = await import('../api/document-ai')
@@ -211,10 +215,10 @@ describe('documentAiClassifyCard — network responses', () => {
     })
 
     const result = await documentAiClassifyCard(fakeFile)
-    expect(result.ok).toBe(true)
-    expect(result.isDemo).toBe(true)
-    if (result.ok) {
-      expect(result.data.payor_label).toBe('Other')
+    expect(result.ok).toBe(false)
+    expect(result.isUnavailable).toBe(true)
+    if (!result.ok) {
+      expect(result.code).toBe('network_error')
     }
   })
 })

@@ -6,7 +6,7 @@ embed:
   voyage_model: "voyage-4-large"
   voyage_batch_size: 128   # texts per embed API call
   voyage_sleep_s: 0.0      # inter-batch sleep (Azure limits are generous)
-  database_url: ${oc.env:DATABASE_URL,postgresql://claimvoice:changeme@localhost:5432/claimvoice}
+  database_url: ${oc.env:DATABASE_URL,postgresql://claimvoice:changeme@localhost:5433/claimvoice}
   voyage_api_key: ${oc.env:VOYAGE_API_KEY,""}
 
   # Embedding provider: "azure" (text-embedding-3-large) default; "voyage" fallback.

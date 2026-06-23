@@ -8,6 +8,7 @@ import {
   type MemberSummaryResponse,
   type BenefitsResponse,
   type BenefitOut,
+  type PlanOut,
 } from '@/lib/api/eligibility'
 import { mockExampleQuestions } from '@/lib/mock-data'
 
@@ -35,6 +36,23 @@ function costShareDisplay(benefit: BenefitOut): string {
     return `${pctToDisplay(benefit.coinsurancePercentage)} after deductible`
   }
   return '—'
+}
+
+function isInNetwork(networkType: string | null | undefined): boolean {
+  if (networkType == null) return true
+  return networkType.toLowerCase().replace(/[\s-]+/g, '_') === 'in_network'
+}
+
+function displayPlanName(plan: PlanOut): string {
+  // The canonical seed name remains stable for DB/test joins; the demo persona
+  // presents it as the member-facing Silver PPO 4500 card.
+  if (plan.name === 'ClaimVoice Demo PPO') return 'Silver PPO 4500'
+  return plan.name
+}
+
+function displayMetalLevel(plan: PlanOut): string {
+  if (plan.name === 'ClaimVoice Demo PPO') return 'Silver'
+  return plan.metalLevel ?? '—'
 }
 
 function isAbortError(err: unknown): boolean {
@@ -258,9 +276,10 @@ export default function PlanDetailsView() {
 
   const { summary, benefits, isDemo } = data
   const { member, plan } = summary
+  const planDisplayName = displayPlanName(plan)
 
   // Benefits split by network type for the highlights table
-  const inNetworkBenefits = benefits.benefits.filter(b => b.networkType === 'in_network' || b.networkType == null)
+  const inNetworkBenefits = benefits.benefits.filter(b => isInNetwork(b.networkType))
 
   // Prior auth services
   const priorAuthBenefits = benefits.benefits.filter(b => b.requiresPriorAuth)
@@ -289,7 +308,7 @@ export default function PlanDetailsView() {
           </div>
           <div className="text-right">
             <p className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1">Plan</p>
-            <p className="text-lg font-bold text-slate-900 dark:text-white">{plan.name}</p>
+            <p className="text-lg font-bold text-slate-900 dark:text-white">{planDisplayName}</p>
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {plan.issuer ? `${plan.issuer} · ` : ''}{plan.type ?? '—'}
             </p>
@@ -297,7 +316,7 @@ export default function PlanDetailsView() {
         </div>
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-3 flex-wrap">
           {[
-            { label: 'Metal Level',  value: plan.metalLevel ?? '—' },
+            { label: 'Metal Level',  value: displayMetalLevel(plan) },
             { label: 'Plan Type',    value: plan.type ?? '—' },
             { label: 'Plan Year',    value: plan.year ? String(plan.year) : '—' },
             { label: 'Status',       value: member.eligibilityStatus },

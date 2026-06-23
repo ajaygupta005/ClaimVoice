@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import Link from 'next/link'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Upload, FileImage, RotateCcw, CheckCircle, AlertTriangle, XCircle, Cpu, FlaskConical } from 'lucide-react'
 import { mockExtractedFields, type ExtractedField } from '@/lib/mock-data'
 import {
@@ -11,6 +12,7 @@ import {
   type NormalizedCardFields,
   type NormalizedPayorClassification,
 } from '@/lib/api/document-ai'
+import { clearCardReviewSession, markCardReviewed } from '@/lib/demo-session'
 
 // ── Stage machine ─────────────────────────────────────────────────────────────
 
@@ -146,9 +148,14 @@ export default function CardUploadFlow() {
   const inputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  useEffect(() => {
+    clearCardReviewSession()
+  }, [])
+
   const reset = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
+    clearCardReviewSession()
     setStage('ready')
     setFileName(null)
     setFields([])
@@ -202,6 +209,12 @@ export default function CardUploadFlow() {
     setFields(extractedFields)
     setModelVersion(normalized.modelVersion)
     setDataSource(ocrResult.isDemo ? 'demo' : 'real')
+    markCardReviewed({
+      source: ocrResult.isDemo ? 'demo' : 'real',
+      memberId: normalized.memberId || 'CVX-0042-MT',
+      memberName: normalized.memberName || 'Maya Thompson',
+      planName: normalized.planName || 'Silver PPO 4500',
+    })
 
     if (classifyResult.ok) {
       setPayor(normalizeClassifyResult(classifyResult.data))
@@ -331,6 +344,12 @@ export default function CardUploadFlow() {
                     setStage('review_ready')
                     setFields(demoFields())
                     setDataSource('demo')
+                    markCardReviewed({
+                      source: 'demo',
+                      memberId: 'CVX-0042-MT',
+                      memberName: 'Maya Thompson',
+                      planName: 'Silver PPO 4500',
+                    })
                   }}
                   className="mt-2 text-xs text-red-700 dark:text-red-400 underline hover:no-underline"
                 >
@@ -390,6 +409,15 @@ export default function CardUploadFlow() {
               </span>
             </div>
           )}
+
+          <div className="flex items-center justify-end gap-2">
+            <Link
+              href="/dashboard/plan"
+              className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+            >
+              Continue to plan
+            </Link>
+          </div>
 
           {/* Review queue */}
           {reviewFields.length > 0 && (

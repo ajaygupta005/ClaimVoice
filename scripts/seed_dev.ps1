@@ -25,7 +25,7 @@ Set-Location $root
 $env:PYTHONUTF8 = "1"
 
 if ($DatabaseUrl) { $env:DATABASE_URL = $DatabaseUrl }
-elseif (-not $env:DATABASE_URL) { $env:DATABASE_URL = "postgresql://claimvoice:changeme@localhost:5432/claimvoice" }
+elseif (-not $env:DATABASE_URL) { $env:DATABASE_URL = "postgresql://claimvoice:changeme@localhost:5433/claimvoice" }
 Write-Host "DATABASE_URL=$($env:DATABASE_URL)"
 
 if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Created .env from .env.example" }

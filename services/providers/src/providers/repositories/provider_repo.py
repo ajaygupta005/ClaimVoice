@@ -28,6 +28,15 @@ _SELECT_COLS = """
 """
 
 
+def _normalize_specialty(value: str) -> str:
+    text = value.strip().lower()
+    if "cardio" in text:
+        return "cardio"
+    if text in {"pcp", "primary care", "family practice"}:
+        return "primary care"
+    return value.strip()
+
+
 def search_providers(
     session: Session,
     specialty: Optional[str] = None,
@@ -48,6 +57,7 @@ def search_providers(
     params: dict[str, Any] = {"limit": limit}
 
     if specialty:
+        specialty = _normalize_specialty(specialty)
         clauses.append(
             "(taxonomy_description ILIKE :specialty OR "
             " EXISTS (SELECT 1 FROM unnest(specialty_codes) sc WHERE sc ILIKE :specialty))"

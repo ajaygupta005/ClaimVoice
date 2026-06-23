@@ -65,6 +65,7 @@ _TARGET_LAT, _TARGET_LNG = 40.7580, -73.9855  # Midtown Manhattan
 _PROCEDURES = ["99213", "70551", "G0463"]      # office visit, MRI brain, outpatient
 _IN_NETWORK_PROVIDERS = 20                      # link the N nearest providers
 _DEMO_SBC_SOURCE_FILE = "claimvoice_demo_sbc_seeded.txt"
+_CARDIOLOGY_SEED_SQL = Path(__file__).with_name("seed_cardiology.sql")
 
 # Local-demo SBC snippets. These mirror the structured seed rows above so RAG
 # evidence, guard facts, and DB-backed tools agree during the demo.
@@ -228,6 +229,15 @@ def _seed_demo_sbc_chunks(cur: psycopg.Cursor, plan_id: str) -> None:
     _LOG.info("demo SBC chunks inserted/updated: %d", len(_DEMO_SBC_CHUNKS))
 
 
+def _seed_cardiology_providers(cur: psycopg.Cursor) -> None:
+    """Ensure the canonical cardiology demo query has NY providers to return."""
+    if not _CARDIOLOGY_SEED_SQL.exists():
+        _LOG.warning("cardiology seed file missing: %s", _CARDIOLOGY_SEED_SQL)
+        return
+    cur.execute(_CARDIOLOGY_SEED_SQL.read_text(encoding="utf-8"))
+    _LOG.info("cardiology demo providers ensured from %s", _CARDIOLOGY_SEED_SQL.name)
+
+
 def seed(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'plans'")
@@ -241,8 +251,13 @@ def seed(conn: psycopg.Connection) -> None:
             INSERT INTO plans (plan_id_type, plan_marketing_name, issuer_name, plan_year,
                                plan_type, metal_level, hsa_eligible, formulary_id,
                                service_area_state, audit_source)
-            VALUES ('PPO', %s, 'ClaimVoice', 2026, 'PPO', 'Gold', false, 'FORM-DEMO', 'NY', %s)
-            ON CONFLICT (plan_marketing_name) DO NOTHING
+            VALUES ('PPO', %s, 'ClaimVoice', 2026, 'PPO', 'Silver', false, 'FORM-DEMO', 'NY', %s)
+            ON CONFLICT (plan_marketing_name) DO UPDATE SET
+                metal_level = EXCLUDED.metal_level,
+                issuer_name = EXCLUDED.issuer_name,
+                plan_type = EXCLUDED.plan_type,
+                service_area_state = EXCLUDED.service_area_state,
+                audit_source = EXCLUDED.audit_source
             """,
             (_PLAN_NAME, _AUDIT),
         )
@@ -296,9 +311,17 @@ def seed(conn: psycopg.Connection) -> None:
             INSERT INTO members (member_id, first_name, last_name, dob, gender, plan_id,
                                  enrollment_date, eligibility_status, deductible_ytd_cents,
                                  oop_ytd_cents, audit_source)
-            VALUES (%s, 'Demo', 'Member', '1985-04-02', 'F', %s::uuid, '2026-01-01',
+            VALUES (%s, 'Maya', 'Thompson', '1985-04-02', 'F', %s::uuid, '2026-01-01',
                     'active', 45000, 120000, %s)
-            ON CONFLICT (member_id) DO NOTHING
+            ON CONFLICT (member_id) DO UPDATE SET
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                gender = EXCLUDED.gender,
+                plan_id = EXCLUDED.plan_id,
+                eligibility_status = EXCLUDED.eligibility_status,
+                deductible_ytd_cents = EXCLUDED.deductible_ytd_cents,
+                oop_ytd_cents = EXCLUDED.oop_ytd_cents,
+                audit_source = EXCLUDED.audit_source
             """,
             (_MEMBER_ID, plan_id, _AUDIT),
         )
@@ -309,8 +332,12 @@ def seed(conn: psycopg.Connection) -> None:
             _LOG.info("demo member %s already present — skipping", _MEMBER_ID)
 
         # In-network links: the N providers nearest Midtown Manhattan
+        _seed_cardiology_providers(cur)
         if not _has_rows(cur, "in_network", plan_id):
-            cur.execute("SELECT npi, location FROM providers WHERE location IS NOT NULL")
+            cur.execute(
+                "SELECT npi, ST_AsText(location::geometry) AS location "
+                "FROM providers WHERE location IS NOT NULL"
+            )
             ranked: list[tuple[float, str]] = []
             for npi, loc in cur.fetchall():
                 pt = _parse_wkt_point(loc)

@@ -31,6 +31,15 @@ def parse_wkt_point(wkt: str | None) -> tuple[float, float] | None:
         return None
 
 
+def normalize_specialty(value: str) -> str:
+    text = value.strip().lower()
+    if "cardio" in text:
+        return "cardio"
+    if text in {"pcp", "primary care", "family practice"}:
+        return "primary care"
+    return text
+
+
 def rank_near(
     query: dict[str, Any], candidates: list[dict[str, Any]]
 ) -> list[tuple[dict[str, Any], float]]:
@@ -40,7 +49,7 @@ def rank_near(
     (over taxonomy_description or specialty_codes), distance within radius_km, optional
     in-network / accepting-new filters, sorted by (distance asc, quality desc).
     """
-    spec = query["specialty"].lower()
+    spec = normalize_specialty(query["specialty"])
     lat, lng = query["lat"], query["lng"]
     radius = query.get("radius_km", 25)
     in_network_only = query.get("in_network_only", False)

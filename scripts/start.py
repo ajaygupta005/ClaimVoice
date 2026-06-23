@@ -246,10 +246,17 @@ def check_prerequisites() -> bool:
 # ── .env handling ─────────────────────────────────────────────────────────────
 
 def load_env() -> None:
-    """Load .env into os.environ if not already set, then export to child procs."""
+    """Load .env into os.environ, then export to child procs.
+
+    Keep most shell exports intact so local overrides still work. DATABASE_URL is
+    the exception: this repo's Docker Compose exposes Postgres on localhost:5433,
+    so a stale shell export pointing at localhost:5432 breaks the live coverage
+    path while health checks still pass.
+    """
     hdr("Loading environment")
     env_file = ROOT / ".env"
     env_example = ROOT / ".env.example"
+    force_env_keys = {"DATABASE_URL"}
 
     if not env_file.exists():
         if env_example.exists():
@@ -261,6 +268,7 @@ def load_env() -> None:
             return
 
     lines_loaded = 0
+    forced_overrides = 0
     with env_file.open() as f:
         for line in f:
             line = line.strip()
@@ -269,11 +277,16 @@ def load_env() -> None:
             key, _, val = line.partition("=")
             key = key.strip()
             val = val.strip().strip('"').strip("'")
-            if key not in os.environ:          # don't clobber shell exports
+            if key in force_env_keys:
+                if os.environ.get(key) != val:
+                    forced_overrides += 1
+                os.environ[key] = val
+            elif key not in os.environ:          # don't clobber shell exports
                 os.environ[key] = val
             lines_loaded += 1
 
-    ok(f".env loaded ({lines_loaded} vars)")
+    suffix = f", {forced_overrides} forced override(s)" if forced_overrides else ""
+    ok(f".env loaded ({lines_loaded} vars{suffix})")
 
 
 # ── Dependency installation ───────────────────────────────────────────────────

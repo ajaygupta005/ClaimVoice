@@ -1,13 +1,58 @@
 """Embedding helper for SBC RAG.
 
-Dispatches to Azure OpenAI `text-embedding-3-large` (default) or Voyage (fallback)
-based on `settings.sbc_embed_provider`. The query and the ingest must use the same
-model + dimensions; the ingest mirrors this logic in `data/ingest/sbc_embed_ingest.py`.
+Dispatches to Azure OpenAI or Voyage based on configured credentials. The query and
+ingest must use compatible dimensions; local demos usually use Voyage because that is
+the key developers are expected to provision.
 """
 
 from __future__ import annotations
 
 from eligibility.core.config import settings
+
+
+class EmbeddingProviderUnavailable(RuntimeError):
+    """Raised when no embedding provider has usable credentials."""
+
+
+def _clean(value: str | None) -> str:
+    return (value or "").strip()
+
+
+def _azure_configured() -> bool:
+    return bool(
+        _clean(getattr(settings, "azure_openai_endpoint", ""))
+        and _clean(getattr(settings, "azure_openai_api_key", ""))
+    )
+
+
+def _voyage_configured() -> bool:
+    return bool(_clean(getattr(settings, "voyage_api_key", "")))
+
+
+def active_embedding_provider() -> str:
+    """Return the provider the runtime can actually call.
+
+    Historically the default was ``azure`` while local setup instructions asked
+    developers to configure ``VOYAGE_API_KEY``. That made readiness green but
+    retrieval fail at runtime. Prefer the requested provider when it is fully
+    configured, then fall back to whichever provider has credentials.
+    """
+    requested = _clean(getattr(settings, "sbc_embed_provider", "azure")).lower() or "azure"
+    azure_ready = _azure_configured()
+    voyage_ready = _voyage_configured()
+
+    if requested == "azure" and azure_ready:
+        return "azure"
+    if requested == "voyage" and voyage_ready:
+        return "voyage"
+    if voyage_ready:
+        return "voyage"
+    if azure_ready:
+        return "azure"
+
+    raise EmbeddingProviderUnavailable(
+        "No SBC embedding provider is configured. Set VOYAGE_API_KEY or Azure OpenAI embedding credentials."
+    )
 
 
 def embed_query(text: str) -> list[float]:
@@ -17,7 +62,8 @@ def embed_query(text: str) -> list[float]:
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed a batch of texts via the configured provider."""
-    if settings.sbc_embed_provider.lower() == "azure":
+    provider = active_embedding_provider()
+    if provider == "azure":
         from openai import AzureOpenAI
 
         client = AzureOpenAI(

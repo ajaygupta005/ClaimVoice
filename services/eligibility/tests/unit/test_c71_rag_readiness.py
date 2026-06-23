@@ -31,6 +31,9 @@ def _make_settings(voyage_key: str = "voy_test_key"):
     """Return a minimal Settings-like object with voyage_api_key set."""
     s = MagicMock()
     s.voyage_api_key = voyage_key
+    s.sbc_embed_provider = "azure"
+    s.azure_openai_endpoint = ""
+    s.azure_openai_api_key = ""
     return s
 
 
@@ -62,8 +65,10 @@ def test_key_missing():
         result = _check_rag_readiness()
     assert result.ragStatus == "key_missing"
     assert result.voyageConfigured is False
+    assert result.azureConfigured is False
+    assert result.activeProvider == ""
     assert result.pgvectorAvailable is False
-    assert "VOYAGE_API_KEY" in result.ragReason
+    assert "embedding provider" in result.ragReason
 
 
 def test_key_placeholder_treated_as_missing():
@@ -152,6 +157,7 @@ def test_ready():
         result = _check_rag_readiness()
     assert result.ragStatus == "ready"
     assert result.sbcChunksCount == 42
+    assert result.activeProvider == "voyage"
     assert result.voyageConfigured is True
     assert result.pgvectorAvailable is True
     assert "30" in result.ragReason
@@ -212,6 +218,7 @@ def test_endpoint_returns_ready_shape():
     data = resp.json()
     assert data["ragStatus"] == "ready"
     assert data["sbcChunksCount"] == 10
+    assert data["activeProvider"] == "voyage"
     assert data["voyageConfigured"] is True
     assert data["pgvectorAvailable"] is True
     # No secret values

@@ -4,7 +4,7 @@
 # For full public-data volume (the demo / acceptance bar) use `just data.ingest`.
 set -euo pipefail
 
-: "${DATABASE_URL:=postgresql://claimvoice:changeme@localhost:5432/claimvoice}"
+: "${DATABASE_URL:=postgresql://claimvoice:changeme@localhost:5433/claimvoice}"
 export DATABASE_URL
 echo "→ DATABASE_URL=$DATABASE_URL"
 

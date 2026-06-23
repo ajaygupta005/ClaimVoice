@@ -10,6 +10,7 @@ import re
 
 import httpx
 
+from voice_agent.core.config import settings
 from voice_agent.tools.schemas import ToolResult
 
 # Default member geo (Midtown Manhattan) until real member context is threaded.
@@ -25,7 +26,14 @@ def _extract_specialty(question: str) -> str:
         r"ophthalmologist|optometrist|x-ray|xray|x ray|imaging|radiolog|radiology)\b",
         question, re.IGNORECASE,
     )
-    return match.group(0) if match else "provider"
+    if not match:
+        return "provider"
+    specialty = match.group(0).lower()
+    if "cardio" in specialty:
+        return "cardiology"
+    if specialty in {"pcp", "primary care", "family practice"}:
+        return "primary care"
+    return match.group(0)
 
 
 def _mock(question: str) -> ToolResult:
@@ -54,13 +62,33 @@ def _provider_name(p: dict) -> str:
     )
 
 
+def _plan_id_for_member(member_id: str) -> str | None:
+    if not member_id:
+        return None
+    try:
+        r = httpx.get(
+            f"{settings.eligibility_base_url}/api/v1/members/{member_id}/summary",
+            timeout=3.0,
+        )
+        if not r.is_success:
+            return None
+        return r.json().get("plan", {}).get("id")
+    except httpx.HTTPError:
+        return None
+
+
 def _http(question: str, member_id: str, base_url: str) -> ToolResult:
     specialty = _extract_specialty(question)
     lat, lng = _DEFAULT_GEO
+    params = {"specialty": specialty, "lat": lat, "lng": lng, "radiusKm": 25, "limit": 3}
+    plan_id = _plan_id_for_member(member_id)
+    if plan_id:
+        params["planId"] = plan_id
+        params["inNetworkOnly"] = True
     try:
         r = httpx.get(
             f"{base_url}/api/v1/providers/near",
-            params={"specialty": specialty, "lat": lat, "lng": lng, "radiusKm": 25, "limit": 3},
+            params=params,
             timeout=5.0,
         )
     except httpx.TimeoutException:
@@ -92,10 +120,11 @@ def _http(question: str, member_id: str, base_url: str) -> ToolResult:
         )
     provs = r.json().get("providers", [])
     if not provs:
-        result = f"No {specialty} providers were found near you in our directory."
+        network_label = "in-network " if plan_id else ""
+        result = f"No {network_label}{specialty} providers were found near you in our directory."
         return ToolResult(
             result=result,
-            args={"specialty": specialty},
+            args={"specialty": specialty, "planId": plan_id},
             ok=True,
             facts=[result],
             data_source="real",
@@ -106,10 +135,11 @@ def _http(question: str, member_id: str, base_url: str) -> ToolResult:
         + (" (in-network)" if p.get("inNetwork") else "")
         for p in provs
     ]
-    result = f"{len(provs)} {specialty} providers found near you — " + ", ".join(facts)
+    network_label = "in-network " if plan_id else ""
+    result = f"{len(provs)} {network_label}{specialty} providers found near you — " + ", ".join(facts)
     return ToolResult(
         result=result,
-        args={"specialty": specialty, "geo": f"{lat},{lng}"},
+        args={"specialty": specialty, "geo": f"{lat},{lng}", "planId": plan_id},
         ok=True,
         facts=facts,
         data_source="real",

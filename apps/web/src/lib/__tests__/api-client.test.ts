@@ -196,8 +196,8 @@ describe('providersSearch — demo fallback', () => {
   })
 })
 
-describe('documentAiOcrCard — demo fallback', () => {
-  it('returns a demo result when the service is unavailable', async () => {
+describe('documentAiOcrCard — unavailable service', () => {
+  it('returns an unavailable error when the service is unavailable', async () => {
     mockFetch(503, {}, false)
 
     const { documentAiOcrCard } = await import('../api/document-ai')
@@ -211,11 +211,12 @@ describe('documentAiOcrCard — demo fallback', () => {
     })
 
     const result = await documentAiOcrCard(fakeFile)
-    expect(result.ok).toBe(true)
-    expect(result.isDemo).toBe(true)
-    if (result.ok) {
-      // updated shape: card_id instead of member_id at top level
-      expect(result.data.card_id).toBe('demo')
+    expect(result.ok).toBe(false)
+    expect(result.isDemo).toBe(false)
+    expect(result.isUnavailable).toBe(true)
+    if (!result.ok) {
+      expect(result.statusCode).toBe(503)
+      expect(result.code).toBe('service_unavailable')
     }
   })
 })

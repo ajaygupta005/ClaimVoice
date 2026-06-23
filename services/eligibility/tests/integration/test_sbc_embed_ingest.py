@@ -46,7 +46,7 @@ def db_conn():
     import psycopg
 
     url = os.environ.get(
-        "DATABASE_URL", "postgresql://claimvoice:changeme@localhost:5432/claimvoice"
+        "DATABASE_URL", "postgresql://claimvoice:changeme@localhost:5433/claimvoice"
     )
     with psycopg.connect(url) as conn:
         # Seed a plan row with a fixed UUID so resolve_plan_id works

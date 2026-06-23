@@ -4,7 +4,7 @@ Returns HTTP 200 always; the payload conveys whether RAG is actually usable.
 This endpoint is called by the voice-agent runtime/status and by scripts/start.py.
 
 Checks performed:
-  1. VOYAGE_API_KEY is configured.
+  1. An embedding provider is configured.
   2. pgvector extension is available in Postgres.
   3. sbc_chunks table exists.
   4. sbc_chunks has at least one row.
@@ -33,18 +33,45 @@ class RagReadinessResponse(BaseModel):
     ragStatus: RagStatusKind
     ragReason: str
     sbcChunksCount: int = 0
+    activeProvider: str = ""
     voyageConfigured: bool = False
+    azureConfigured: bool = False
     pgvectorAvailable: bool = False
 
 
-def _check_rag_readiness() -> RagReadinessResponse:
-    voyage_ok = bool(settings.voyage_api_key.strip())
+def _clean(value: str | None) -> str:
+    return (value or "").strip()
 
-    if not voyage_ok:
+
+def _provider_readiness() -> tuple[str, bool, bool]:
+    requested = _clean(getattr(settings, "sbc_embed_provider", "azure")).lower() or "azure"
+    azure_ok = bool(
+        _clean(getattr(settings, "azure_openai_endpoint", ""))
+        and _clean(getattr(settings, "azure_openai_api_key", ""))
+    )
+    voyage_ok = bool(_clean(getattr(settings, "voyage_api_key", "")))
+
+    if requested == "azure" and azure_ok:
+        return "azure", voyage_ok, azure_ok
+    if requested == "voyage" and voyage_ok:
+        return "voyage", voyage_ok, azure_ok
+    if voyage_ok:
+        return "voyage", voyage_ok, azure_ok
+    if azure_ok:
+        return "azure", voyage_ok, azure_ok
+    return "", voyage_ok, azure_ok
+
+
+def _check_rag_readiness() -> RagReadinessResponse:
+    active_provider, voyage_ok, azure_ok = _provider_readiness()
+
+    if not active_provider:
         return RagReadinessResponse(
             ragStatus="key_missing",
-            ragReason="VOYAGE_API_KEY is not configured",
-            voyageConfigured=False,
+            ragReason="No embedding provider credentials configured",
+            activeProvider="",
+            voyageConfigured=voyage_ok,
+            azureConfigured=azure_ok,
             pgvectorAvailable=False,
         )
 
@@ -60,7 +87,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
                 return RagReadinessResponse(
                     ragStatus="table_missing",
                     ragReason="pgvector extension not installed",
-                    voyageConfigured=True,
+                    activeProvider=active_provider,
+                    voyageConfigured=voyage_ok,
+                    azureConfigured=azure_ok,
                     pgvectorAvailable=False,
                 )
 
@@ -76,7 +105,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
                 return RagReadinessResponse(
                     ragStatus="table_missing",
                     ragReason="sbc_chunks table does not exist — run migrations",
-                    voyageConfigured=True,
+                    activeProvider=active_provider,
+                    voyageConfigured=voyage_ok,
+                    azureConfigured=azure_ok,
                     pgvectorAvailable=True,
                 )
 
@@ -90,7 +121,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
                 return RagReadinessResponse(
                     ragStatus="empty",
                     ragReason="sbc_chunks table exists but contains no rows — run sbc_embed_ingest",
-                    voyageConfigured=True,
+                    activeProvider=active_provider,
+                    voyageConfigured=voyage_ok,
+                    azureConfigured=azure_ok,
                     pgvectorAvailable=True,
                     sbcChunksCount=0,
                 )
@@ -108,7 +141,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
                 return RagReadinessResponse(
                     ragStatus="no_plan_links",
                     ragReason=f"{total} chunks exist but none are linked to a known plan",
-                    voyageConfigured=True,
+                    activeProvider=active_provider,
+                    voyageConfigured=voyage_ok,
+                    azureConfigured=azure_ok,
                     pgvectorAvailable=True,
                     sbcChunksCount=total,
                 )
@@ -116,7 +151,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
             return RagReadinessResponse(
                 ragStatus="ready",
                 ragReason=f"{linked} plan-linked chunks available",
-                voyageConfigured=True,
+                activeProvider=active_provider,
+                voyageConfigured=voyage_ok,
+                azureConfigured=azure_ok,
                 pgvectorAvailable=True,
                 sbcChunksCount=total,
             )
@@ -125,7 +162,9 @@ def _check_rag_readiness() -> RagReadinessResponse:
         return RagReadinessResponse(
             ragStatus="db_error",
             ragReason=f"database error: {type(exc).__name__}",
+            activeProvider=active_provider,
             voyageConfigured=voyage_ok,
+            azureConfigured=azure_ok,
             pgvectorAvailable=False,
         )
 
